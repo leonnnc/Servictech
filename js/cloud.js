@@ -34,7 +34,7 @@ window.Cloud = (function () {
 
   /* ---------- estado ---------- */
   function emit() { listeners.forEach(function (f) { try { f(status()); } catch (e) { } }); }
-  function onChange(fn) { listeners.push(fn); }
+  function onChange(fn) { if (listeners.indexOf(fn) < 0) listeners.push(fn); }
   function status() {
     var m = meta();
     return {
@@ -52,28 +52,41 @@ window.Cloud = (function () {
   }
 
   /* ---------- inicialización (carga diferida del SDK) ---------- */
-  async function init() {
-    if (!configured()) return null;
-    if (st.ready) return st;
-    st.loading = true; emit();
-    var appMod = await import(CDN + 'firebase-app.js');
-    var authMod = await import(CDN + 'firebase-auth.js');
-    var fsMod = await import(CDN + 'firebase-firestore.js');
-    fb.mod = { appMod: appMod, authMod: authMod, fsMod: fsMod };
-    fb.app = appMod.getApps && appMod.getApps().length ? appMod.getApps()[0] : appMod.initializeApp(cfg());
-    fb.auth = authMod.getAuth(fb.app);
-    try { await authMod.setPersistence(fb.auth, authMod.browserLocalPersistence); } catch (e) { }
-    try {
-      fb.db = fsMod.initializeFirestore(fb.app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
-    } catch (e) { fb.db = fsMod.getFirestore(fb.app); }
-    st.ready = true; st.loading = false;
-    authMod.onAuthStateChanged(fb.auth, function (u) {
-      st.user = u || null;
-      if (u) { setMeta({ email: u.email }); startAuto(); pull(false); } else { stopAuto(); }
-      emit();
-    });
-    emit();
-    return st;
+  var _initPromise = null;
+  function init() {
+    if (!configured()) return Promise.resolve(null);
+    if (st.ready) return Promise.resolve(st);
+    if (_initPromise) return _initPromise;
+    _initPromise = (async function () {
+      st.loading = true; emit();
+      try {
+        var appMod = await import(CDN + 'firebase-app.js');
+        var authMod = await import(CDN + 'firebase-auth.js');
+        var fsMod = await import(CDN + 'firebase-firestore.js');
+        fb.mod = { appMod: appMod, authMod: authMod, fsMod: fsMod };
+        fb.app = appMod.getApps && appMod.getApps().length ? appMod.getApps()[0] : appMod.initializeApp(cfg());
+        fb.auth = authMod.getAuth(fb.app);
+        try { await authMod.setPersistence(fb.auth, authMod.browserLocalPersistence); } catch (e) { }
+        try {
+          fb.db = fsMod.initializeFirestore(fb.app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
+        } catch (e) { fb.db = fsMod.getFirestore(fb.app); }
+        st.ready = true; st.loading = false;
+        authMod.onAuthStateChanged(fb.auth, function (u) {
+          st.user = u || null;
+          if (u) { setMeta({ email: u.email }); startAuto(); pull(false); } else { stopAuto(); }
+          emit();
+        });
+        emit();
+        return st;
+      } catch (err) {
+        st.loading = false;
+        st.error = msg(err);
+        emit();
+        _initPromise = null;
+        throw err;
+      }
+    })();
+    return _initPromise;
   }
 
   /* ---------- referencia al documento ---------- */
@@ -90,6 +103,8 @@ window.Cloud = (function () {
       await fb.mod.fsMod.setDoc(docRef(), {
         payload: payload, updatedAt: upd, device: deviceName(), email: st.user.email
       });
+      if (Store.db && Store.db.meta) Store.db.meta.updatedAt = upd;
+      Store.save(true);
       st.lastSync = upd; setMeta({ lastSync: upd }); st.error = ''; st.pending = false; emit();
       if (!silent) toast('Datos subidos a la nube');
       return true;
@@ -110,9 +125,13 @@ window.Cloud = (function () {
       var rUpd = Number(d.updatedAt || 0);
       var lUpd = Number((Store.db.meta || {}).updatedAt || 0);
       if (force || rUpd > lUpd) {
-        Store.importJSON(JSON.stringify(d.payload));
+        Store.importJSON(JSON.stringify(d.payload), true);
         st.lastSync = Date.now(); setMeta({ lastSync: st.lastSync }); st.error = ''; emit();
-        route(); toast('Datos actualizados desde la nube');
+        var activeTag = document.activeElement && document.activeElement.tagName;
+        if (!activeTag || !['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {
+          route();
+        }
+        toast('Datos actualizados desde la nube');
         return true;
       }
       if (lUpd > rUpd) { return await push(true); }

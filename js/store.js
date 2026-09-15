@@ -23,6 +23,33 @@ window.Store = (function () {
     if (!m.nextInf) m.nextInf = 1;
     if (!m.year) m.year = new Date().getFullYear();
     if (m.tecnico === undefined) m.tecnico = '';
+
+    // Asegurar que las secuencias no colisionen con registros existentes
+    Object.keys(SEQKEY).forEach(function (col) {
+      var k = SEQKEY[col];
+      var list = db[col] || [];
+      var maxId = 0;
+      list.forEach(function (r) {
+        var num = parseInt(r.id, 10);
+        if (!isNaN(num) && num > maxId) maxId = num;
+      });
+      if ((m.seq[k] || 0) < maxId) m.seq[k] = maxId;
+    });
+
+    // Asegurar que nextInf sea mayor a los informes existentes del año
+    if (Array.isArray(db.informes)) {
+      var currYear = m.year;
+      var maxInf = 0;
+      db.informes.forEach(function (inf) {
+        if (inf && inf.codigo) {
+          var parts = String(inf.codigo).split('-');
+          var num = parseInt(parts[0], 10);
+          var yr = parseInt(parts[1], 10);
+          if (yr === currYear && !isNaN(num) && num > maxInf) maxInf = num;
+        }
+      });
+      if (m.nextInf <= maxInf) m.nextInf = maxInf + 1;
+    }
   }
 
   function load() {
@@ -37,18 +64,21 @@ window.Store = (function () {
     return db;
   }
 
-  function save() {
+  function save(skipNotify) {
     ensureMeta();
     db.meta.updatedAt = Date.now();
     localStorage.setItem(KEY, JSON.stringify(db));
-    if (window.Cloud && Cloud.notifyChange) Cloud.notifyChange();
+    if (!skipNotify && window.Cloud && Cloud.notifyChange) Cloud.notifyChange();
   }
 
   function coll(name) { return db[name] || []; }
   function get(col, id) {
-    var found = null;
-    coll(col).forEach(function (r) { if (String(r.id) === String(id)) found = r; });
-    return found;
+    if (id == null) return null;
+    var rows = coll(col);
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].id) === String(id)) return rows[i];
+    }
+    return null;
   }
 
   function add(col, row) {
@@ -81,10 +111,10 @@ window.Store = (function () {
 
   function exportJSON() { return JSON.stringify(db, null, 1); }
 
-  function importJSON(text) {
+  function importJSON(text, skipNotify) {
     var d = JSON.parse(text);
     if (!d || !d.v) throw new Error('Archivo no válido');
-    db = d; ensureMeta(); save(); return db;
+    db = d; ensureMeta(); save(skipNotify); return db;
   }
 
   function reset() { db = empty(); save(); }

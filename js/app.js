@@ -173,8 +173,8 @@ function route() {
 /* =========================================================
    EMPRESAS
    ========================================================= */
-function cardBack() {
-  return '<a class="btn ghost sm" href="#/empresas">← Volver</a>';
+function cardBack(href) {
+  return '<a class="btn ghost sm" href="' + (href || '#/empresas') + '">← Volver</a>';
 }
 
 /* =========================================================
@@ -455,9 +455,9 @@ function vEquipoForm(qs) {
 
   var sel = $('select[name=id_empresa_sel]');
   sel.addEventListener('change', function () {
-    var url = '#/equipo-form?empresa=' + encodeURIComponent(sel.value);
-    if (eq) url += '&edit=' + encodeURIComponent(eq.id);
-    location.hash = url;
+    // Actualizar campo oculto sin recargar la vista (preserva los datos ya escritos)
+    var hid = $('input[name=id_empresa]');
+    if (hid) hid.value = sel.value;
   });
 }
 
@@ -524,8 +524,9 @@ function vTareaForm(qs) {
   var v = function (k) { return t ? t[k] : ''; };
   var defEmp = qs.get('empresa') || (t ? t.id_empresa : '');
   var defEqu = qs.get('equipo') || (t ? t.id_equipo : '');
+  var _backTarUrl = t ? '#/tarea/' + esc(t.id) : (defEmp ? '#/empresa/' + esc(defEmp) : '#/tareas');
   $('#view').innerHTML =
-    '<div class="stack">' + cardBack() +
+    '<div class="stack">' + cardBack(_backTarUrl) +
     '<form class="card pad" data-f="tar" data-id="' + (t ? esc(t.id) : '') + '">' +
     fieldSel('Empresa', 'id_empresa_sel', optEmpresas(defEmp, false)) +
     fieldSel('Equipo', 'id_equipo_sel', optEquipos(defEmp, defEqu)) +
@@ -578,7 +579,7 @@ function vTarea(id) {
   var db = Store.db;
   var reps = db.repuestos.filter(function (r) { return String(r.id_tarea) === String(id); });
   var inf = db.informes.find(function (x) { return String(x.id_tarea) === String(id); });
-  var html = '<div class="stack">' + cardBack() +
+  var html = '<div class="stack">' + cardBack('#/tareas') +
     '<div class="card pad">' +
     '<div class="line"><span class="big">' + esc(empName(t.id_empresa)) + '</span>' + badge(t.estado, EST_TAREA) + '</div>' +
     '<div class="kv"><span>Equipo</span><b>' + esc(eqName(t.id_equipo)) + '</b></div>' +
@@ -704,9 +705,10 @@ function vRepuestoForm(qs) {
 
   var sTar = $('select[name=id_tarea_sel]');
   sTar.addEventListener('change', function () {
-    var url = '#/repuesto-form?tarea=' + encodeURIComponent(sTar.value);
-    if (r) url += '&edit=' + encodeURIComponent(r.id);
-    location.hash = url;
+    // Actualizar campo oculto sin recargar (preserva los datos ya escritos)
+    var _t = sTar.value ? Store.get('tareas', sTar.value) : null;
+    var hid = $('input[name=id_empresa_h]');
+    if (hid) hid.value = _t ? _t.id_empresa : '';
   });
 }
 
@@ -793,7 +795,7 @@ function vInformeForm(qs) {
       return '<option value="' + esc(x.id) + '">' + esc(empName(x.id_empresa)) + ' — ' + esc(x.descripcion_trabajo || 'T-' + x.id) + '</option>';
     }).join('');
     $('#view').innerHTML =
-      '<div class="stack">' + cardBack() +
+      '<div class="stack">' + cardBack('#/informes') +
       '<form class="card pad" data-f="seltar">' +
       '<label class="fld"><span>Tarea a informar</span><select name="tarea" required>' + (opts || '<option value="">— No hay tareas abiertas —</option>') + '</select></label>' +
       '<button class="btn primary block" type="submit">Continuar</button>' +
@@ -803,7 +805,7 @@ function vInformeForm(qs) {
   var emp = Store.get('empresas', t.id_empresa);
   var eq = t.id_equipo ? Store.get('equipos', t.id_equipo) : null;
   var changed = db.repuestos.filter(function (r) { return String(r.id_tarea) === String(t.id) && r.estado_pedido === 'Cambiado'; });
-  var html = '<div class="stack">' + cardBack() +
+  var html = '<div class="stack">' + cardBack(tid ? '#/tarea/' + esc(tid) : '#/informes') +
     '<div class="card pad">' +
     '<div class="line"><span class="big">Informe de servicio técnico</span></div>' +
     '<div class="kv"><span>Empresa</span><b>' + esc(emp ? emp.razon_social : '') + ' · RUC ' + esc(emp ? emp.ruc : '') + '</b></div>' +
@@ -870,7 +872,10 @@ function saveInforme(form) {
     fecha_envio: ''
   };
   var nuevo = Store.add('informes', row);
-  Store.upd('tareas', tid, { estado: 'Completada', informe_emitido: true, fecha_fin: Store.nowLocal() });
+  Store.upd('tareas', tid, {
+    estado: 'Completada', informe_emitido: true, fecha_fin: Store.nowLocal(),
+    novedad: d.novedad, trabajo_realizado: d.trabajo_realizado, solucion: d.solucion
+  });
   toast('Informe ' + row.codigo + ' guardado');
   location.hash = '#/informe/' + nuevo.id;
 }

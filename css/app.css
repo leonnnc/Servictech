@@ -59,6 +59,8 @@ main { max-width: 660px; margin: 0 auto; padding: 14px 14px calc(116px + env(saf
 #topbar h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #newSlot { display: flex; gap: 6px; flex: 0 0 auto; }
 #newSlot .btn.primary { background: #fff; color: var(--teal-dk); box-shadow: 0 3px 10px rgba(0, 0, 0, .18); border: none; }
+a.brand { text-decoration: none; color: inherit; }
+a.brand:hover { opacity: .88; }
 
 /* ---------- dock de navegación flotante ---------- */
 #tabbar {
