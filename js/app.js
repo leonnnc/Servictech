@@ -1909,7 +1909,8 @@ function vCostos(qs) {
         '</div>' +
         '<div class="day-costos-right">' +
           '<span class="day-costos-sub" id="daySub-' + esc(f) + '">Subtotal día: <b>' + money(daySub) + '</b></span>' +
-          '<button type="button" class="btn ghost sm btn-sel-day" data-date="' + esc(f) + '" title="Marcar/Desmarcar día">✓ Marcar día</button>' +
+          '<button type="button" class="btn ghost sm btn-sel-day" data-date="' + esc(f) + '" title="Marcar/Desmarcar día">✓ Día</button>' +
+          '<button type="button" class="btn ghost sm btn-only-day" data-date="' + esc(f) + '" title="Seleccionar únicamente este día">Solo este día</button>' +
         '</div>' +
       '</div>' +
       '<div class="day-items" style="padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;">';
@@ -1960,13 +1961,17 @@ function vCostos(qs) {
     var sumSel = 0;
     var sumVis = 0;
     var countSel = 0;
+    var countVis = 0;
     var selDates = [];
 
-    // Recalcular subtotales por día
+    // Recalcular subtotales por día (solo tareas visibles)
     sortedDates.forEach(function (f) {
       var dSub = 0;
       groups[f].forEach(function (t) {
-        dSub += (parseFloat(t.costo) || 0);
+        var card = $('.costos-item[data-id="' + String(t.id) + '"]');
+        if (card && card.style.display !== 'none') {
+          dSub += (parseFloat(t.costo) || 0);
+        }
       });
       var subEl = $('#daySub-' + f);
       if (subEl) subEl.innerHTML = 'Subtotal día: <b>' + money(dSub) + '</b>';
@@ -1977,9 +1982,9 @@ function vCostos(qs) {
       var cost = parseFloat(t.costo) || 0;
       var card = $('.costos-item[data-id="' + idStr + '"]');
       var isVis = card && card.style.display !== 'none';
-      if (isVis) sumVis += cost;
+      if (isVis) { sumVis += cost; countVis++; }
 
-      if (selectedMap[idStr]) {
+      if (isVis && selectedMap[idStr]) {
         sumSel += cost;
         countSel++;
         var d = t.fecha_trabajo || t.fecha_creacion;
@@ -1993,7 +1998,7 @@ function vCostos(qs) {
     var elPeriodo = $('#costosPeriodoSel');
 
     if (elSel) elSel.textContent = money(sumSel);
-    if (elCount) elCount.textContent = countSel + ' de ' + tareas.length + ' selecc.';
+    if (elCount) elCount.textContent = countSel + ' de ' + countVis + ' visibles selecc.';
     if (elAll) elAll.textContent = 'Total tareas visibles: ' + money(sumVis);
 
     if (elPeriodo) {
@@ -2013,7 +2018,7 @@ function vCostos(qs) {
   var dDesdeInp = $('#costosDesde');
   var dHastaInp = $('#costosHasta');
 
-  function filterItems() {
+  function filterItems(syncSelection) {
     var q = (busInp ? busInp.value : '').toLowerCase().trim();
     var desde = dDesdeInp ? dDesdeInp.value : '';
     var hasta = dHastaInp ? dHastaInp.value : '';
@@ -2042,7 +2047,20 @@ function vCostos(qs) {
         var matchEst = !curEst || est === curEst;
         var vis = dayMatchDate && matchQ && matchEst;
         item.style.display = vis ? '' : 'none';
-        if (vis) dayVisibleCards++;
+        var id = item.dataset.id;
+        var chk = $('.costos-check', item);
+        if (!vis) {
+          selectedMap[id] = false;
+          if (chk) chk.checked = false;
+          item.classList.remove('is-selected');
+        } else {
+          dayVisibleCards++;
+          if (syncSelection) {
+            selectedMap[id] = true;
+            if (chk) chk.checked = true;
+            item.classList.add('is-selected');
+          }
+        }
       });
 
       var dayGroup = $('.costos-day-group[data-date="' + f + '"]');
@@ -2054,7 +2072,7 @@ function vCostos(qs) {
     recalc();
   }
 
-  if (busInp) busInp.addEventListener('input', filterItems);
+  if (busInp) busInp.addEventListener('input', function () { filterItems(false); });
 
   // Chips de fecha
   $$('#costosDateChips .chip').forEach(function (chip) {
@@ -2073,7 +2091,7 @@ function vCostos(qs) {
         if (dDesdeInp) dDesdeInp.value = '';
         if (dHastaInp) dHastaInp.value = '';
       }
-      filterItems();
+      filterItems(true);
     });
   });
 
@@ -2081,7 +2099,7 @@ function vCostos(qs) {
   var bApplyDates = $('#btnApplyDates');
   if (bApplyDates) bApplyDates.addEventListener('click', function () {
     curD = 'rango';
-    filterItems();
+    filterItems(true);
   });
 
   // Botón Limpiar fechas
@@ -2093,7 +2111,7 @@ function vCostos(qs) {
     $$('#costosDateChips .chip').forEach(function (c) { c.classList.toggle('on', c.dataset.d === 'todas'); });
     var dateBar = $('#costosDateBar');
     if (dateBar) dateBar.style.display = 'none';
-    filterItems();
+    filterItems(true);
   });
 
   // Chips de estado
@@ -2105,7 +2123,7 @@ function vCostos(qs) {
       $$('[data-est]').forEach(function (c) {
         if (!c.classList.contains('costos-item')) c.classList.toggle('on', c.dataset.est === curEst);
       });
-      filterItems();
+      filterItems(false);
     });
   });
 
@@ -2133,6 +2151,23 @@ function vCostos(qs) {
         selectedMap[c.dataset.id] = targetState;
         var card = c.closest('.costos-item');
         if (card) card.classList.toggle('is-selected', targetState);
+      });
+      recalc();
+    });
+  });
+
+  // Botón "Solo este día": deselecciona todas las demás y selecciona solo este día
+  $$('.btn-only-day').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var targetDate = btn.dataset.date;
+      $$('#costosList .costos-check').forEach(function (chk) {
+        var card = chk.closest('.costos-item');
+        var isThisDay = card && card.dataset.date === targetDate;
+        var isVis = !card || card.style.display !== 'none';
+        var state = isThisDay && isVis;
+        chk.checked = state;
+        selectedMap[chk.dataset.id] = state;
+        if (card) card.classList.toggle('is-selected', state);
       });
       recalc();
     });
@@ -2189,12 +2224,21 @@ function vCostos(qs) {
     inp.addEventListener('change', onCostChange);
   });
 
+  // Helper: Obtener solo tareas que estén VISIBLES en el filtro actual Y seleccionadas
+  function getSelectedVisibleTasks() {
+    return tareas.filter(function (t) {
+      var card = $('.costos-item[data-id="' + String(t.id) + '"]');
+      var isVis = card && card.style.display !== 'none';
+      return isVis && !!selectedMap[String(t.id)];
+    });
+  }
+
   // Botón Enviar por WhatsApp (PDF)
   var bWaPdf = $('#btnCostosWaPdf');
   if (bWaPdf) bWaPdf.addEventListener('click', function () {
-    var selTasks = tareas.filter(function (t) { return selectedMap[String(t.id)]; });
+    var selTasks = getSelectedVisibleTasks();
     if (!selTasks.length) {
-      toast('Selecciona al menos una tarea');
+      toast('Selecciona al menos una tarea en el período visible');
       return;
     }
 
@@ -2248,9 +2292,9 @@ function vCostos(qs) {
   // Botón Descargar PDF directo
   var bDlPdf = $('#btnCostosDlPdf');
   if (bDlPdf) bDlPdf.addEventListener('click', function () {
-    var selTasks = tareas.filter(function (t) { return selectedMap[String(t.id)]; });
+    var selTasks = getSelectedVisibleTasks();
     if (!selTasks.length) {
-      toast('Selecciona al menos una tarea');
+      toast('Selecciona al menos una tarea en el período visible');
       return;
     }
 
