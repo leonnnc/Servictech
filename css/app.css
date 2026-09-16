@@ -589,3 +589,16 @@ body.cover main { padding: 0; }
   align-self: flex-start;
   margin-top: 1px;
 }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
+  #topbar, #tabbar, #toast, .no-print { display: none !important; }
+  main { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+  .report {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+}

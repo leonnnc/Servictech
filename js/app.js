@@ -1397,6 +1397,63 @@ function informeText(x) {
   return L.join('\n');
 }
 
+function generateReportPdf(x, callback) {
+  var printArea = document.getElementById('printArea');
+  if (!printArea) {
+    if (typeof callback === 'function') callback(new Error('No print area found'));
+    return;
+  }
+
+  // Verificar si jsPDF y html2canvas están disponibles
+  var jspdfLib = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
+  if (!window.html2canvas || !jspdfLib) {
+    console.warn('Librerías PDF no disponibles en ventana');
+    if (typeof callback === 'function') callback(new Error('PDF libraries not loaded'));
+    return;
+  }
+
+  window.html2canvas(printArea, {
+    scale: 2, // Buena resolución
+    useCORS: true,
+    logging: false,
+    backgroundColor: '#ffffff'
+  }).then(function (canvas) {
+    try {
+      var imgData = canvas.toDataURL('image/jpeg', 0.95);
+      var pdf = new jspdfLib('p', 'mm', 'a4');
+      var pdfWidth = pdf.internal.pageSize.getWidth();
+      var pdfHeight = pdf.internal.pageSize.getHeight();
+
+      var imgWidth = pdfWidth - 20; // 10mm márgenes
+      var imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      var xPos = 10;
+      var yPos = 10;
+      var heightLeft = imgHeight;
+      var position = 10;
+
+      pdf.addImage(imgData, 'JPEG', xPos, position, imgWidth, imgHeight);
+      heightLeft -= (pdfHeight - 20);
+
+      // Si el contenido excede una página A4, añadir páginas subsecuentes
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + 10;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', xPos, position, imgWidth, imgHeight);
+        heightLeft -= (pdfHeight - 20);
+      }
+
+      if (typeof callback === 'function') callback(null, pdf);
+    } catch (err) {
+      console.error('Error generando documento PDF:', err);
+      if (typeof callback === 'function') callback(err);
+    }
+  }).catch(function (err) {
+    console.error('Error html2canvas:', err);
+    if (typeof callback === 'function') callback(err);
+  });
+}
+
 function vInforme(id) {
   var x = Store.get('informes', id);
   if (!x) { location.hash = '#/informes'; return; }
@@ -1415,8 +1472,9 @@ function vInforme(id) {
   var html = '<div class="stack no-print">' + '<a class="btn ghost sm" href="#/informes">← Volver a Informes</a>' +
     '<div class="btnrow">' +
     '<a class="btn secondary sm" href="#/informe-form?edit=' + esc(id) + '">✏️ Editar informe</a>' +
-    '<button class="btn primary sm" data-act="wa-share" data-id="' + esc(id) + '">📱 Enviar por WhatsApp</button>' +
-    '<button class="btn secondary sm" data-act="print">🖨️ PDF / Imprimir</button>' +
+    '<button class="btn primary sm" data-act="wa-share" data-id="' + esc(id) + '">📱 Enviar por WhatsApp (PDF)</button>' +
+    '<button class="btn secondary sm" data-act="pdf-dl" data-id="' + esc(id) + '">📥 Descargar PDF</button>' +
+    '<button class="btn ghost sm" data-act="print">🖨️ Imprimir</button>' +
     '<button class="btn danger sm" data-act="del-inf" data-id="' + esc(id) + '">Eliminar</button>' +
     '</div></div>';
 
@@ -1768,13 +1826,73 @@ document.addEventListener('click', function (e) {
     }, 'Borrar todo');
   }
   else if (act === 'print') { window.print(); }
+  else if (act === 'pdf-dl') {
+    var x = Store.get('informes', id);
+    if (!x) return;
+    toast('Generando PDF…');
+    generateReportPdf(x, function (err, pdfDoc) {
+      if (err || !pdfDoc) {
+        toast('Error al generar PDF. Usa Imprimir.');
+        return;
+      }
+      var filename = 'Informe_' + (x.codigo || 'Servitech') + '.pdf';
+      pdfDoc.save(filename);
+      toast('PDF descargado');
+    });
+  }
   else if (act === 'wa-share') {
     var x = Store.get('informes', id);
     if (!x) return;
-    var url = 'https://wa.me/?text=' + encodeURIComponent(informeText(x));
-    Store.upd('informes', id, { enviado_a: 'WhatsApp', fecha_envio: Store.nowLocal() });
-    window.open(url, '_blank');
-    toast('Abriendo WhatsApp…');
+    toast('Generando PDF para WhatsApp…');
+    generateReportPdf(x, function (err, pdfDoc) {
+      var filename = 'Informe_' + (x.codigo || 'Servitech') + '.pdf';
+      var textMsg = informeText(x);
+      var waUrl = 'https://wa.me/?text=' + encodeURIComponent(textMsg);
+
+      if (!err && pdfDoc) {
+        try {
+          var blob = pdfDoc.output('blob');
+          var file = new File([blob], filename, { type: 'application/pdf' });
+
+          // Si el navegador soporta compartir archivos nativamente (Android / iOS / PWA)
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({
+              title: 'Informe ' + (x.codigo || ''),
+              text: 'Adjunto Informe de Servicio Técnico ' + (x.codigo || ''),
+              files: [file]
+            }).then(function () {
+              Store.upd('informes', id, { enviado_a: 'WhatsApp (PDF)', fecha_envio: Store.nowLocal() });
+              toast('Informe compartido exitosamente');
+            }).catch(function (e) {
+              if (e && e.name !== 'AbortError') {
+                // Fallback: descarga PDF y abre WhatsApp
+                pdfDoc.save(filename);
+                Store.upd('informes', id, { enviado_a: 'WhatsApp', fecha_envio: Store.nowLocal() });
+                window.open(waUrl, '_blank');
+                toast('PDF descargado. Adjúntalo en el chat de WhatsApp que se abrirá.');
+              }
+            });
+            return;
+          }
+
+          // En navegadores de escritorio (Chrome/Edge/Firefox en PC): descarga el PDF y abre WhatsApp Web
+          pdfDoc.save(filename);
+          Store.upd('informes', id, { enviado_a: 'WhatsApp', fecha_envio: Store.nowLocal() });
+          setTimeout(function () {
+            window.open(waUrl, '_blank');
+            toast('PDF descargado. Adjúntalo en el chat de WhatsApp que se abrirá.');
+          }, 350);
+          return;
+        } catch (e) {
+          console.error('Error procesando PDF para compartir:', e);
+        }
+      }
+
+      // Fallback final si la generación de PDF no estuvo disponible
+      Store.upd('informes', id, { enviado_a: 'WhatsApp', fecha_envio: Store.nowLocal() });
+      window.open(waUrl, '_blank');
+      toast('Abriendo WhatsApp…');
+    });
   }
 });
 
