@@ -1195,18 +1195,13 @@ function vAjustes() {
     '<button class="btn primary block" type="submit">Guardar</button></form>' +
     '<div class="card pad"><h2 class="sec">Nube</h2>' +
     '<div id="cloudBox"><p class="hint">Cargando…</p></div></div>' +
-    '<div class="card pad"><h2 class="sec">Respaldo de datos</h2>' +
-    '<p class="hint">Tus datos se guardan en este dispositivo/navegador. Descarga un respaldo con frecuencia y guárdalo en la nube o en tu correo.</p>' +
+    '<div class="card pad"><h2 class="sec">Respaldo y mantenimiento de datos</h2>' +
+    '<p class="hint">Tus datos se guardan en este dispositivo/navegador. Descarga un respaldo con frecuencia y guárdalo en tu nube o correo.</p>' +
     '<div class="btnrow">' +
     '<button class="btn secondary sm" data-act="export">Descargar respaldo</button>' +
     '<label class="btn ghost sm">Importar respaldo<input type="file" id="fileImp" accept=".json,application/json" hidden></label>' +
+    '<button class="btn danger sm" data-act="reset">Borrar todos los datos</button>' +
     '</div></div>' +
-    '<div class="card pad"><h2 class="sec">Datos de prueba</h2>' +
-    '<div class="btnrow">' +
-    '<button class="btn secondary sm" data-act="seed">Cargar ejemplo</button>' +
-    '<button class="btn danger sm" data-act="reset">Borrar todo</button>' +
-    '</div>' +
-    '<p class="hint">"Cargar ejemplo" reemplaza todo por 2 empresas de prueba para explorar la app.</p></div>' +
     '<div class="card pad"><h2 class="sec">Instalar en el celular</h2>' +
     '<p class="hint">Cuando la app esté publicada en internet: ábrela en Chrome en tu Android, toca el menú (⋮) y elige "Agregar a pantalla de inicio". Quedará un ícono que la abre a pantalla completa, como una app normal, incluso sin conexión.</p></div>' +
     '<p class="hint" style="text-align:center">Servitech v0.1 · datos locales en este dispositivo</p>' +
