@@ -23,7 +23,17 @@
   --r-lg: 20px; --r-md: 16px; --r-sm: 12px;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; }
+html, body {
+  margin: 0; padding: 0;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 118, 110, .2) transparent;
+}
+/* Ocultar barra de scroll tosca en navegadores webkit para un look tipo app nativa */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(15, 118, 110, .25); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--teal); }
 body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background:
@@ -310,6 +320,10 @@ canvas.sig {
 .rep-sec-repuestos { border-left: 4px solid #6366F1; }
 .rep-sec-repuestos .rep-sec-header { background: #EEF2FF; color: #3730A3; }
 .rep-sec-repuestos .rep-sec-header svg { stroke: #6366F1; fill: none; stroke-width: 2; }
+
+.rep-sec-recom { border-left: 4px solid #8B5CF6; }
+.rep-sec-recom .rep-sec-header { background: #F3E8FF; color: #6D28D9; }
+.rep-sec-recom .rep-sec-header svg { stroke: #8B5CF6; fill: none; stroke-width: 2.2; }
 
 /* Conformidad destacada */
 .rep-conformidad-badge {

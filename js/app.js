@@ -1142,7 +1142,7 @@ function vInformeForm(qs) {
   var defaultNovedad = infExistente ? (infExistente.novedad || '') : '';
   var defaultTrabajo = infExistente ? (infExistente.trabajo_realizado || '') : '';
   var defaultSolucion = infExistente ? (infExistente.solucion || '') : '';
-  var defaultRecom = '';
+  var defaultRecom = infExistente ? (infExistente.recomendaciones || '') : '';
   var taskIds = [];
   var taskDescList = [];
 
@@ -1202,6 +1202,7 @@ function vInformeForm(qs) {
     fieldArea('1. Novedad: lo que se encontró', 'novedad', defaultNovedad, 'Diagnóstico en el sitio') +
     fieldArea('2. Trabajo realizado', 'trabajo_realizado', defaultTrabajo, 'Qué acciones se ejecutaron') +
     fieldArea('3. Solución / estado final', 'solucion', defaultSolucion, 'Equipo operativo, entrega conforme…') +
+    fieldArea('4. Conclusiones y recomendaciones del técnico', 'recomendaciones', defaultRecom, 'Próximo mantenimiento, sugerencias de uso, precauciones…') +
     '<h2 class="sec">Repuestos utilizados</h2>';
   if (!changed.length) html += '<p class="hint">Sin repuestos cambiados en esta jornada.</p>';
   changed.forEach(function (r) {
@@ -1297,6 +1298,7 @@ function saveInforme(form) {
     existingInf.novedad = d.novedad;
     existingInf.trabajo_realizado = d.trabajo_realizado;
     existingInf.solucion = d.solucion;
+    existingInf.recomendaciones = d.recomendaciones || '';
     existingInf.conformidad = d.conformidad || 'Conforme';
     existingInf.observaciones_conformidad = d.observaciones_conformidad || '';
     existingInf.nombre_responsable = d.nombre_responsable;
@@ -1325,6 +1327,7 @@ function saveInforme(form) {
     novedad: d.novedad,
     trabajo_realizado: d.trabajo_realizado,
     solucion: d.solucion,
+    recomendaciones: d.recomendaciones || '',
     repuestos: repuestosData,
     conformidad: d.conformidad || 'Conforme',
     observaciones_conformidad: d.observaciones_conformidad || '',
@@ -1371,6 +1374,7 @@ function informeText(x) {
     L.push('REPUESTOS'); x.repuestos.forEach(function (r) { L.push('- ' + r.pieza + ' x' + r.cantidad + ' (' + money(r.precio) + ')'); }); L.push('');
   }
   if (x.solucion) { L.push('SOLUCION / ESTADO FINAL'); L.push(x.solucion); L.push(''); }
+  if (x.recomendaciones) { L.push('CONCLUSIONES Y RECOMENDACIONES DEL TECNICO'); L.push(x.recomendaciones); L.push(''); }
   var confText = x.conformidad === 'No conforme' ? '⚠️ NO CONFORME' : '✅ CONFORME';
   L.push('ESTADO DE CONFORMIDAD: ' + confText);
   if (x.observaciones_conformidad) L.push('Observaciones: ' + x.observaciones_conformidad);
@@ -1486,10 +1490,22 @@ function vInforme(id) {
     solNum + '. Solución y estado final en que queda el equipo' +
     '</div>' +
     '<div class="rep-sec-body">' + esc(x.solucion || 'Equipo operativo y probado conforme en presencia del cliente.') + '</div>' +
-    '</div>' +
+    '</div>';
 
-    /* Firmas y conformidad */
-    '<div class="rep-firmas">' +
+  /* Sección 5: Conclusiones y recomendaciones del técnico */
+  if (x.recomendaciones) {
+    var recNum = (Number(solNum) + 1);
+    html += '<div class="rep-sec-card rep-sec-recom">' +
+      '<div class="rep-sec-header">' +
+      '<svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7zM9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9v1z"/></svg>' +
+      recNum + '. Conclusiones y recomendaciones del técnico' +
+      '</div>' +
+      '<div class="rep-sec-body">' + esc(x.recomendaciones) + '</div>' +
+      '</div>';
+  }
+
+  /* Firmas y conformidad */
+  html += '<div class="rep-firmas">' +
     '<div class="firma">' +
     '<div class="firma-box">' + (x.firma_responsable ? '<img src="' + x.firma_responsable + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
     '<div class="firma-nombre">' + esc(x.nombre_responsable || 'Responsable de recepción') + (x.cargo_responsable ? '<br><small>' + esc(x.cargo_responsable) + '</small>' : '') + '</div>' +
