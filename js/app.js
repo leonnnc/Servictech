@@ -446,7 +446,16 @@ function vEmpresaForm(qs) {
 
 function readForm(form) {
   var out = {};
-  $$('input,select,textarea', form).forEach(function (i) { out[i.name] = i.value; });
+  $$('input,select,textarea', form).forEach(function (i) {
+    if (!i.name) return;
+    if (i.type === 'radio') {
+      if (i.checked) out[i.name] = i.value;
+    } else if (i.type === 'checkbox') {
+      out[i.name] = i.checked;
+    } else {
+      out[i.name] = i.value;
+    }
+  });
   return out;
 }
 
