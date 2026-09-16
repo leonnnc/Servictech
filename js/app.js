@@ -96,7 +96,12 @@ function optEquipos(empId, sel) {
   if (!list.length) return '<option value="">— Sin equipos para esta empresa —</option>';
   var s = '<option value="">— Sin equipo específico —</option>';
   list.forEach(function (q) {
-    s += '<option value="' + esc(q.id) + '"' + (String(sel) === String(q.id) ? ' selected' : '') + '>' + esc(eqLabel(q)) + '</option>';
+    var extra = [];
+    if (q.usuario) extra.push('Usuario: ' + q.usuario);
+    if (q.ubicacion_empresa) extra.push(q.ubicacion_empresa);
+    if (q.ubicacion) extra.push(q.ubicacion);
+    var extraTxt = extra.length ? ' (' + extra.join(' - ') + ')' : '';
+    s += '<option value="' + esc(q.id) + '"' + (String(sel) === String(q.id) ? ' selected' : '') + '>' + esc(eqLabel(q) + extraTxt) + '</option>';
   });
   return s;
 }
@@ -348,11 +353,17 @@ function vEmpresa(id) {
   html += '<h2 class="sec">Equipos (' + eqs.length + ')</h2>';
   eqs.forEach(function (q, idx) {
     var fReg = q.fecha_registro ? fmtDate(q.fecha_registro) : '';
+    var metaArr = ['Serie ' + esc(q.nro_serie || '—')];
+    if (q.usuario) metaArr.push('👤 ' + esc(q.usuario));
+    if (q.ubicacion_empresa) metaArr.push('🏢 ' + esc(q.ubicacion_empresa));
+    if (q.ubicacion) metaArr.push('📍 ' + esc(q.ubicacion));
+    if (fReg) metaArr.push('Reg: ' + esc(fReg));
+
     html += '<div class="card row">' +
       '<span class="item-num">#' + (idx + 1) + '</span>' +
       '<div class="row-main">' +
       '<div class="t">' + esc(eqLabel(q)) + '</div>' +
-      '<div class="s">Serie ' + esc(q.nro_serie || '—') + (q.ubicacion ? ' · ' + esc(q.ubicacion) : '') + (fReg ? ' · Reg: ' + esc(fReg) : '') + '</div>' +
+      '<div class="s">' + metaArr.join(' · ') + '</div>' +
       '</div>' +
       '<div class="row-meta"><a class="btn ghost sm" href="#/equipo-form?empresa=' + esc(e.id) + '&edit=' + esc(q.id) + '">Editar</a>' +
       '<button class="btn danger sm" data-act="del-equipo" data-id="' + esc(q.id) + '">Quitar</button></div></div>';
@@ -483,7 +494,7 @@ function eqListHtml(q, idEmp) {
   }
   if (q) {
     list = list.filter(function (x) {
-      var full = (eqLabel(x) + ' ' + (x.nro_serie || '') + ' ' + (x.ubicacion || '') + ' ' + empName(x.id_empresa)).toLowerCase();
+      var full = (eqLabel(x) + ' ' + (x.nro_serie || '') + ' ' + (x.usuario || '') + ' ' + (x.ubicacion_empresa || '') + ' ' + (x.ubicacion || '') + ' ' + empName(x.id_empresa)).toLowerCase();
       return full.indexOf(q) >= 0;
     });
   }
@@ -501,12 +512,18 @@ function eqListHtml(q, idEmp) {
     var tars = db.tareas.filter(function (t) { return String(t.id_equipo) === String(eq.id); });
     var tarsPend = tars.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
 
+    var extraMeta = [];
+    if (eq.usuario) extraMeta.push('👤 <b>Usuario:</b> ' + esc(eq.usuario));
+    if (eq.ubicacion_empresa) extraMeta.push('🏢 ' + esc(eq.ubicacion_empresa));
+    if (eq.ubicacion) extraMeta.push('📍 ' + esc(eq.ubicacion));
+    if (fReg) extraMeta.push('Reg: ' + esc(fReg));
+
     html += '<div class="card row">' +
       '<span class="item-num">#' + (idx + 1) + '</span>' +
       '<div class="row-main">' +
       '<div class="t">' + esc(eqLabel(eq)) + '</div>' +
       '<div class="s"><b>Cliente:</b> ' + (emp ? esc(emp.razon_social) : '—') + '</div>' +
-      '<div class="s">Serie: ' + esc(eq.nro_serie || '—') + (eq.ubicacion ? ' · ' + esc(eq.ubicacion) : '') + (fReg ? ' · Reg: ' + esc(fReg) : '') + '</div>' +
+      '<div class="s">Serie: ' + esc(eq.nro_serie || '—') + (extraMeta.length ? ' · ' + extraMeta.join(' · ') : '') + '</div>' +
       '</div>' +
       '<div class="row-meta" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">' +
       '<span class="cnt' + (tarsPend ? ' warn2' : '') + '">' + pl(tarsPend, 'pendiente', 'pendientes') + '</span>' +
@@ -572,7 +589,11 @@ function vEquipoForm(qs) {
     field('Modelo', 'modelo', v('modelo')) +
     field('N° de serie', 'nro_serie', v('nro_serie')) +
     '</div>' +
-    field('Ubicación (piso, oficina…)', 'ubicacion', v('ubicacion')) +
+    '<div class="row2">' +
+    field('Usuario del equipo', 'usuario', v('usuario'), 'text', 'Ej: Juan Pérez / Recepción') +
+    field('Ubicación de la empresa (sede / sucursal)', 'ubicacion_empresa', v('ubicacion_empresa'), 'text', 'Ej: Sede Principal, Sucursal Norte…') +
+    '</div>' +
+    field('Ubicación interna (piso, oficina…)', 'ubicacion', v('ubicacion'), 'text', 'Ej: Piso 3, Oficina 302, Sala de servidores…') +
     field('Fecha de registro', 'fecha_registro', v('fecha_registro') || Store.today(), 'date', '', true) +
     fieldArea('Notas del equipo', 'notas_equipo', v('notas_equipo')) +
     '<button class="btn primary block" type="submit">Guardar equipo</button>' +
@@ -732,7 +753,16 @@ function vTarea(id) {
   var html = '<div class="stack">' + cardBack('#/tareas') +
     '<div class="card pad">' +
     '<div class="line"><span class="big">' + esc(empName(t.id_empresa)) + '</span>' + badge(t.estado, EST_TAREA) + '</div>' +
-    '<div class="kv"><span>Equipo</span><b>' + esc(eqName(t.id_equipo)) + '</b></div>' +
+    (function () {
+      var q = t.id_equipo ? Store.get('equipos', t.id_equipo) : null;
+      var qHtml = '<div class="kv"><span>Equipo</span><b>' + esc(eqName(t.id_equipo)) + '</b></div>';
+      if (q) {
+        if (q.usuario) qHtml += '<div class="kv"><span>Usuario del equipo</span><b>' + esc(q.usuario) + '</b></div>';
+        if (q.ubicacion_empresa) qHtml += '<div class="kv"><span>Sede / Sucursal</span><b>' + esc(q.ubicacion_empresa) + '</b></div>';
+        if (q.ubicacion) qHtml += '<div class="kv"><span>Ubicación interna</span><b>' + esc(q.ubicacion) + '</b></div>';
+      }
+      return qHtml;
+    })() +
     '<div class="kv"><span>Tipo / prioridad</span><b>' + esc(t.tipo_tarea || '—') + ' · ' + esc(t.prioridad || '—') + '</b></div>' +
     '<div class="kv"><span>Descripción</span><b>' + esc(t.descripcion_trabajo || '—') + '</b></div>' +
     (t.costo != null && t.costo !== '' ? '<div class="kv"><span>Costo de servicio</span><b>' + money(Number(t.costo) || 0) + '</b></div>' : '') +
@@ -1304,7 +1334,9 @@ function saveInforme(form) {
       marca: existingInf.equipo.marca,
       modelo: existingInf.equipo.modelo,
       nro_serie: existingInf.equipo.serie,
-      ubicacion: existingInf.equipo.ubicacion
+      ubicacion: existingInf.equipo.ubicacion,
+      usuario: existingInf.equipo.usuario,
+      ubicacion_empresa: existingInf.equipo.ubicacion_empresa
     };
   }
 
@@ -1342,7 +1374,7 @@ function saveInforme(form) {
     fecha_emision: Store.nowLocal(),
     tecnico: (primerTarea && primerTarea.tecnico_responsable) || Store.db.meta.tecnico || '',
     empresa: { razon_social: emp.razon_social, ruc: emp.ruc, direccion: emp.direccion, contacto: emp.persona_contacto },
-    equipo: eq ? { tipo: eq.tipo_equipo, marca: eq.marca, modelo: eq.modelo, serie: eq.nro_serie, ubicacion: eq.ubicacion } : null,
+    equipo: eq ? { tipo: eq.tipo_equipo, marca: eq.marca, modelo: eq.modelo, serie: eq.nro_serie, ubicacion: eq.ubicacion, usuario: eq.usuario, ubicacion_empresa: eq.ubicacion_empresa } : null,
     novedad: d.novedad,
     trabajo_realizado: d.trabajo_realizado,
     solucion: d.solucion,
@@ -1386,7 +1418,14 @@ function informeText(x) {
   if (e.ruc) L.push('RUC: ' + e.ruc);
   if (e.direccion) L.push(e.direccion);
   L.push('');
-  if (eq) { L.push('EQUIPO: ' + [eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' ')); if (eq.serie) L.push('Serie: ' + eq.serie); L.push(''); }
+  if (eq) {
+    L.push('EQUIPO: ' + [eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' '));
+    if (eq.serie) L.push('Serie: ' + eq.serie);
+    if (eq.usuario) L.push('Usuario: ' + eq.usuario);
+    if (eq.ubicacion_empresa) L.push('Sede: ' + eq.ubicacion_empresa);
+    if (eq.ubicacion) L.push('Ubicacion: ' + eq.ubicacion);
+    L.push('');
+  }
   if (x.novedad) { L.push('LO QUE SE ENCONTRO'); L.push(x.novedad); L.push(''); }
   if (x.trabajo_realizado) { L.push('LO QUE SE HIZO'); L.push(x.trabajo_realizado); L.push(''); }
   if (x.repuestos && x.repuestos.length) {
@@ -1510,6 +1549,8 @@ function vInforme(id) {
     '<b>Fecha:</b> ' + esc(fServ) + '<br>' +
     (eq ? '<b>Equipo:</b> ' + esc([eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' ')) +
       (eq.serie ? '<br><b>Serie:</b> ' + esc(eq.serie) : '') +
+      (eq.usuario ? '<br><b>Usuario:</b> ' + esc(eq.usuario) : '') +
+      (eq.ubicacion_empresa ? '<br><b>Sede:</b> ' + esc(eq.ubicacion_empresa) : '') +
       (eq.ubicacion ? '<br><b>Ubicación:</b> ' + esc(eq.ubicacion) : '') : '<b>Atención general en sitio</b>') +
     '</div></div>' +
     '<div class="rep-meta-card">' +
