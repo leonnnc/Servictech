@@ -1,18 +1,19 @@
-# Servitech — App de soporte técnico
+# Servitech v0.2 — App de soporte técnico
 
-PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de tareas, repuestos e informes de servicio con firma**.
+PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de tareas, costos de servicios, repuestos e informes con firma y PDF**.
 
-Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guardados en el propio dispositivo (localStorage) y respaldo manual en JSON.
+Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guardados en el propio dispositivo (localStorage), sincronización transparente con Firebase Cloud Firestore y respaldo manual en JSON.
 
 ## Funciones
 
 - **Portada** tipo carpeta e inicio "En servicio" con las empresas con trabajo abierto y resumen del día.
 - **Empresas**: ficha editable (razón social, RUC, dirección, contacto, notas) e historial.
 - **Equipos**: registrados por empresa (tipo, marca, modelo, N° de serie, ubicación).
-- **Tareas**: banco con estados (Pendiente, En curso, Esperando repuestos, Completada, Cancelada), novedad, trabajo realizado y solución.
+- **Tareas**: agrupadas por fecha/jornada con estados (Pendiente, En curso, Esperando repuestos, Completada, Cancelada), novedad, trabajo realizado y solución.
+- **Costos**: listado completo de tareas con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de tareas seleccionadas y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**.
 - **Repuestos / compras**: estados *Por comprar → Pedido → Recibido → Cambiado*.
-- **Informes de servicio**: numeración correlativa anual, datos de la empresa, lo que se encontró, lo que se hizo, solución, repuestos usados, **firma del responsable y del técnico**, vista imprimible (PDF) y envío por WhatsApp. Al firmar, la tarea pasa a Completada.
-- **Ajustes**: respaldo/restauración JSON, datos de ejemplo, nombre del técnico y moneda.
+- **Informes de servicio**: emisión consolidada por empresa y fecha de jornada, numeración correlativa anual, repuestos usados, **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp.
+- **Ajustes**: sincronización Firebase transparente, respaldo/restauración JSON, nombre del técnico y moneda.
 
 ## Uso local
 

@@ -2293,7 +2293,7 @@ function vAjustes() {
     '</div></div>' +
     '<div class="card pad"><h2 class="sec">Instalar en el celular</h2>' +
     '<p class="hint">Cuando la app esté publicada en internet: ábrela en Chrome en tu Android, toca el menú (⋮) y elige "Agregar a pantalla de inicio". Quedará un ícono que la abre a pantalla completa, como una app normal, incluso sin conexión.</p></div>' +
-    '<p class="hint" style="text-align:center">Servitech v0.1 · datos locales en este dispositivo</p>' +
+    '<p class="hint" style="text-align:center">Servitech v0.2 · datos locales en este dispositivo</p>' +
     '</div>';
   $('#view').innerHTML = html;
   var fi = $('#fileImp');
