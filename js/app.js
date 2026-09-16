@@ -153,7 +153,8 @@ function route() {
   document.body.classList.toggle('cover', seg === 'intro');
   var tab = seg;
   if (seg === 'inicio') tab = 'empresas';
-  if (seg === 'empresa' || seg === 'equipo-form' || seg === 'empresa-form') tab = 'empresas';
+  if (seg === 'empresa' || seg === 'empresa-form') tab = 'empresas';
+  if (seg === 'equipos' || seg === 'equipo-form') tab = 'equipos';
   if (seg === 'tarea' || seg === 'tarea-form') tab = 'tareas';
   if (seg === 'repuesto-form') tab = 'compras';
   if (seg === 'informe' || seg === 'informe-form') tab = 'informes';
@@ -165,6 +166,7 @@ function route() {
     else if (seg === 'empresas') vEmpresas(qs);
     else if (seg === 'empresa' && parts[1]) vEmpresa(parts[1]);
     else if (seg === 'empresa-form') vEmpresaForm(qs);
+    else if (seg === 'equipos') vEquipos(qs);
     else if (seg === 'equipo-form') vEquipoForm(qs);
     else if (seg === 'tareas') vTareas(qs);
     else if (seg === 'tarea' && parts[1]) vTarea(parts[1]);
@@ -455,8 +457,84 @@ function saveEmpresa(form) {
 }
 
 /* =========================================================
-   EQUIPOS
+   EQUIPOS (Registro general de equipos)
    ========================================================= */
+function eqListHtml(q, idEmp) {
+  var db = Store.db;
+  q = (q || '').toLowerCase();
+  var list = db.equipos.slice().sort(function (a, b) {
+    return (b.fecha_registro || '').localeCompare(a.fecha_registro || '');
+  });
+  if (idEmp) {
+    list = list.filter(function (x) { return String(x.id_empresa) === String(idEmp); });
+  }
+  if (q) {
+    list = list.filter(function (x) {
+      var full = (eqLabel(x) + ' ' + (x.nro_serie || '') + ' ' + (x.ubicacion || '') + ' ' + empName(x.id_empresa)).toLowerCase();
+      return full.indexOf(q) >= 0;
+    });
+  }
+  if (!db.equipos.length) {
+    return '<div class="empty"><p>No hay equipos registrados en el sistema.</p><a class="btn primary" href="#/equipo-form">+ Registrar primer equipo</a></div>';
+  }
+  if (!list.length) {
+    return '<div class="empty"><p>Sin equipos para los filtros aplicados.</p></div>';
+  }
+
+  var html = '';
+  list.forEach(function (eq) {
+    var emp = Store.get('empresas', eq.id_empresa);
+    var fReg = eq.fecha_registro ? fmtDate(eq.fecha_registro) : '';
+    var tars = db.tareas.filter(function (t) { return String(t.id_equipo) === String(eq.id); });
+    var tarsPend = tars.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
+
+    html += '<div class="card row">' +
+      '<div class="row-main">' +
+      '<div class="t">' + esc(eqLabel(eq)) + '</div>' +
+      '<div class="s"><b>Cliente:</b> ' + (emp ? esc(emp.razon_social) : '—') + '</div>' +
+      '<div class="s">Serie: ' + esc(eq.nro_serie || '—') + (eq.ubicacion ? ' · ' + esc(eq.ubicacion) : '') + (fReg ? ' · Reg: ' + esc(fReg) : '') + '</div>' +
+      '</div>' +
+      '<div class="row-meta" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">' +
+      '<span class="cnt' + (tarsPend ? ' warn2' : '') + '">' + pl(tarsPend, 'pendiente', 'pendientes') + '</span>' +
+      '<div class="btnrow" style="margin-top:2px;">' +
+      '<a class="btn ghost sm" style="padding:2px 7px;font-size:11px;" href="#/equipo-form?edit=' + esc(eq.id) + '">Editar</a>' +
+      '<a class="btn secondary sm" style="padding:2px 7px;font-size:11px;" href="#/tarea-form?empresa=' + esc(eq.id_empresa) + '&equipo=' + esc(eq.id) + '">+ Tarea</a>' +
+      '</div>' +
+      '</div></div>';
+  });
+  return html;
+}
+
+function vEquipos(qs) {
+  setTitle('Equipos');
+  setNew('<a class="btn primary sm" href="#/equipo-form">+ Registrar equipo</a>');
+  var empSel = qs.get('empresa') || '';
+  var qText = qs.get('q') || '';
+
+  var html = '<div class="stack">' +
+    '<div class="search"><input id="busEq" placeholder="Buscar por tipo, modelo, serie o cliente…" value="' + esc(qText) + '"></div>' +
+    '<div class="card pad" style="padding:8px 12px; margin-bottom:2px;">' +
+    '<div class="kv" style="align-items:center;"><span>Filtrar por empresa:</span>' +
+    '<select id="selEmpEq" style="max-width:240px; padding:6px 8px; border-radius:8px; border:1px solid var(--line);">' +
+    '<option value="">— Todas las empresas —</option>';
+  Store.coll('empresas').forEach(function (e) {
+    html += '<option value="' + esc(e.id) + '"' + (String(empSel) === String(e.id) ? ' selected' : '') + '>' + esc(e.razon_social) + '</option>';
+  });
+  html += '</select></div></div>' +
+    '<div id="listWrapEq"></div>' +
+    '</div>';
+  $('#view').innerHTML = html;
+
+  var inp = $('#busEq');
+  var sel = $('#selEmpEq');
+  function fill() {
+    $('#listWrapEq').innerHTML = eqListHtml(inp.value, sel.value);
+  }
+  fill();
+  inp.addEventListener('input', fill);
+  sel.addEventListener('change', fill);
+}
+
 function vEquipoForm(qs) {
   var empId = qs.get('empresa');
   var eq = qs.get('edit') ? Store.get('equipos', qs.get('edit')) : null;
