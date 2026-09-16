@@ -935,25 +935,108 @@ function vInformeForm(qs) {
     fechaServicio = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || fechaServicio;
   }
 
-  // Si no se ha especificado empresa, mostrar selector de empresa y fecha
+  // PASO 1: Si no hay empresa, mostrar selector de empresa únicamente
   if (!empId) {
-    var empOpts = Store.coll('empresas').map(function (e) {
-      return '<option value="' + esc(e.id) + '">' + esc(e.razon_social) + ' (RUC ' + esc(e.ruc) + ')</option>';
-    }).join('');
-    $('#view').innerHTML =
-      '<div class="stack">' + cardBack('#/informes') +
-      '<form class="card pad" data-f="sel-inf-emp">' +
-      '<h2 class="sec">Crear informe de servicio</h2>' +
-      '<label class="fld"><span>Empresa</span><select name="empresa" required>' +
-      '<option value="">— Seleccionar empresa —</option>' + empOpts + '</select></label>' +
-      field('Fecha de la jornada / servicio', 'fecha', Store.today(), 'date', '', true) +
-      '<button class="btn primary block" type="submit">Continuar</button>' +
-      '</form></div>';
+    setTitle('Nuevo informe');
+    setNew(null);
+    var empList = Store.coll('empresas').filter(function (e) { return e.activo !== 'No'; });
+    var html1 = '<div class="stack">' + cardBack('#/informes') +
+      '<div class="card pad">' +
+      '<h2 class="sec">Crear informe — Paso 1</h2>' +
+      '<p class="hint">Selecciona la empresa para ver las jornadas de servicio y su estado de informe.</p>' +
+      '</div>';
+    if (!empList.length) {
+      html1 += '<div class="empty"><p>No hay empresas registradas.</p><a class="btn primary" href="#/empresa-form">Registrar empresa</a></div>';
+    }
+    empList.forEach(function (e) {
+      var tars = db.tareas.filter(function (t) { return String(t.id_empresa) === String(e.id); });
+      var infs = db.informes.filter(function (x) { return String(x.id_empresa) === String(e.id); });
+      var pendFechas = Store.getTareasPorFecha(e.id).filter(function (g) {
+        return !infs.some(function (x) { return x.fecha_servicio === g.fecha; });
+      }).length;
+      html1 += '<a class="card row" href="#/informe-form?empresa=' + esc(e.id) + '">' +
+        '<div class="row-main">' +
+        '<div class="t">' + esc(e.razon_social) + '</div>' +
+        '<div class="s">RUC ' + esc(e.ruc || '—') + (e.rubro ? ' · ' + esc(e.rubro) : '') + '</div>' +
+        '</div>' +
+        '<div class="row-meta" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">' +
+        '<span class="cnt">' + pl(tars.length, 'jornada', 'jornadas') + '</span>' +
+        (pendFechas ? '<span class="badge warn">' + pendFechas + ' sin informe</span>' : '<span class="badge ok">Al día</span>') +
+        '</div></a>';
+    });
+    html1 += '</div>';
+    $('#view').innerHTML = html1;
     return;
   }
 
   var emp = Store.get('empresas', empId);
   if (!emp) { toast('Empresa no encontrada'); location.hash = '#/informes'; return; }
+
+  // PASO 2: Si hay empresa pero no fecha, mostrar lista de jornadas con estado de informe
+  if (!qs.get('fecha') && !tid) {
+    setTitle('Jornadas — ' + emp.razon_social);
+    setNew(null);
+    var dayGroups = Store.getTareasPorFecha(empId);
+    var infsEmp = db.informes.filter(function (x) { return String(x.id_empresa) === String(empId); });
+
+    var html2 = '<div class="stack">' + cardBack('#/informe-form') +
+      '<div class="card pad">' +
+      '<div class="kv"><span>Empresa</span><b>' + esc(emp.razon_social) + '</b></div>' +
+      '<div class="kv"><span>RUC</span><b>' + esc(emp.ruc || '—') + '</b></div>' +
+      '</div>' +
+      '<div class="card pad">' +
+      '<h2 class="sec">Paso 2 — Selecciona la jornada</h2>' +
+      '<p class="hint">Jornadas de servicio registradas. Las que ya tienen informe emitido están marcadas en verde.</p>' +
+      '</div>';
+
+    if (!dayGroups.length) {
+      html2 += '<div class="empty"><p>No hay tareas/jornadas registradas para esta empresa.</p>' +
+        '<a class="btn secondary" href="#/tarea-form?empresa=' + esc(empId) + '">+ Registrar tarea</a></div>';
+    }
+
+    dayGroups.forEach(function (group) {
+      var infExistente = infsEmp.find(function (x) { return x.fecha_servicio === group.fecha; });
+      var dFmt = dayLabel(group.fecha);
+      var tasksPend = group.tareas.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
+
+      if (infExistente) {
+        // Jornada ya tiene informe
+        html2 += '<div class="day-card" style="border-left:4px solid #059669;">' +
+          '<div class="day-head">' +
+          '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
+          '<div class="day-actions">' +
+          '<span class="badge ok">✅ Informe ' + esc(infExistente.codigo) + '</span>' +
+          '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/informe/' + esc(infExistente.id) + '">Ver informe</a>' +
+          '</div></div>';
+      } else {
+        // Jornada pendiente de informe
+        html2 += '<div class="day-card" style="border-left:4px solid #D97706;">' +
+          '<div class="day-head">' +
+          '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
+          '<div class="day-actions">' +
+          (tasksPend > 0 ? '<span class="badge warn">' + tasksPend + ' pendientes</span>' : '') +
+          '<a class="btn secondary sm" style="font-size:11.5px;padding:4px 10px;" href="#/informe-form?empresa=' + esc(empId) + '&fecha=' + esc(group.fecha) + '">📝 Crear informe</a>' +
+          '</div></div>';
+      }
+
+      // Mostrar tareas de la jornada
+      html2 += '<div class="day-items">';
+      group.tareas.forEach(function (t) {
+        var eq = t.id_equipo ? Store.get('equipos', t.id_equipo) : null;
+        html2 += '<div class="card row" style="pointer-events:none;opacity:.85;">' +
+          '<div class="row-main">' +
+          '<div class="t">' + esc(t.descripcion_trabajo || 'Sin descripción') + '</div>' +
+          '<div class="s">' + (eq ? esc(eqLabel(eq)) + ' · ' : '') + '<span class="badge ' + (EST_TAREA[t.estado] || 'mute') + '">' + esc(t.estado) + '</span></div>' +
+          '</div></div>';
+      });
+      html2 += '</div></div>';
+    });
+
+    html2 += '</div>';
+    $('#view').innerHTML = html2;
+    return;
+  }
+
 
   setTitle('Informe: ' + emp.razon_social);
   setNew(null);
