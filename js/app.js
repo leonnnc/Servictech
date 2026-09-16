@@ -988,6 +988,21 @@ function initPad(id) {
       cv._drawn = false;
       setupCanvas();
     },
+    isDrawn: function () {
+      return !!cv._drawn;
+    },
+    fromDataURL: function (dataUrl) {
+      if (!dataUrl) return;
+      var img = new Image();
+      img.onload = function () {
+        var rect = cv.getBoundingClientRect();
+        var w = Math.round(rect.width || cv.clientWidth || 400);
+        var h = Math.round(rect.height || cv.clientHeight || 150);
+        ctx.drawImage(img, 0, 0, w, h);
+        cv._drawn = true;
+      };
+      img.src = dataUrl;
+    },
     dataURL: function () {
       return cv._drawn ? cv.toDataURL('image/png') : '';
     }
@@ -995,9 +1010,11 @@ function initPad(id) {
 }
 
 function vInformeForm(qs) {
+  var editId = qs.get('edit');
+  var infExistente = editId ? Store.get('informes', editId) : null;
   var tid = qs.get('tarea');
-  var empId = qs.get('empresa');
-  var fechaServicio = qs.get('fecha') || Store.today();
+  var empId = qs.get('empresa') || (infExistente ? infExistente.id_empresa : null);
+  var fechaServicio = qs.get('fecha') || (infExistente ? infExistente.fecha_servicio : Store.today());
   var db = Store.db;
   var t = tid ? Store.get('tareas', tid) : null;
   if (t) {
@@ -1005,8 +1022,8 @@ function vInformeForm(qs) {
     fechaServicio = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || fechaServicio;
   }
 
-  // PASO 1: Si no hay empresa, mostrar selector de empresa únicamente
-  if (!empId) {
+  // PASO 1: Si no hay empresa ni edición, mostrar selector de empresa únicamente
+  if (!empId && !infExistente) {
     setTitle('Nuevo informe');
     setNew(null);
     var empList = Store.coll('empresas').filter(function (e) { return e.activo !== 'No'; });
@@ -1042,8 +1059,8 @@ function vInformeForm(qs) {
   var emp = Store.get('empresas', empId);
   if (!emp) { toast('Empresa no encontrada'); location.hash = '#/informes'; return; }
 
-  // PASO 2: Si hay empresa pero no fecha, mostrar lista de jornadas con estado de informe
-  if (!qs.get('fecha') && !tid) {
+  // PASO 2: Si hay empresa pero no fecha y no es edición, mostrar lista de jornadas con estado de informe
+  if (!qs.get('fecha') && !tid && !infExistente) {
     setTitle('Jornadas — ' + emp.razon_social);
     setNew(null);
     var dayGroups = Store.getTareasPorFecha(empId);
@@ -1065,18 +1082,19 @@ function vInformeForm(qs) {
     }
 
     dayGroups.forEach(function (group) {
-      var infExistente = infsEmp.find(function (x) { return x.fecha_servicio === group.fecha; });
+      var infJornada = infsEmp.find(function (x) { return x.fecha_servicio === group.fecha; });
       var dFmt = dayLabel(group.fecha);
       var tasksPend = group.tareas.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
 
-      if (infExistente) {
+      if (infJornada) {
         // Jornada ya tiene informe
         html2 += '<div class="day-card" style="border-left:4px solid #059669;">' +
           '<div class="day-head">' +
           '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
           '<div class="day-actions">' +
-          '<span class="badge ok">✅ Informe ' + esc(infExistente.codigo) + '</span>' +
-          '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/informe/' + esc(infExistente.id) + '">Ver informe</a>' +
+          '<span class="badge ok">✅ ' + esc(infJornada.codigo) + '</span>' +
+          '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/informe/' + esc(infJornada.id) + '">Ver</a>' +
+          '<a class="btn secondary sm" style="font-size:11px;padding:3px 8px;" href="#/informe-form?edit=' + esc(infJornada.id) + '">✏️ Editar</a>' +
           '</div></div>';
       } else {
         // Jornada pendiente de informe
@@ -1107,22 +1125,23 @@ function vInformeForm(qs) {
     return;
   }
 
-
-  setTitle('Informe: ' + emp.razon_social);
+  setTitle(infExistente ? ('Editar ' + infExistente.codigo) : ('Informe: ' + emp.razon_social));
   setNew(null);
 
-  // Obtener todas las tareas de esta empresa correspondientes a esta fecha (o la tarea puntual si viene por tid)
+  // Obtener todas las tareas de esta empresa correspondientes a esta fecha (o la tarea puntual si viene por tid o por informe existente)
+  var taskIdsFromInf = (infExistente && infExistente.task_ids) ? infExistente.task_ids : [];
   var dayTasks = db.tareas.filter(function (x) {
     if (String(x.id_empresa) !== String(empId)) return false;
+    if (infExistente && taskIdsFromInf.indexOf(x.id) >= 0) return true;
     if (tid && String(x.id) === String(tid)) return true;
     var xf = x.fecha_trabajo || x.fecha_programada || x.fecha_creacion || '';
     return xf === fechaServicio;
   });
 
   // Consolidar novedad, trabajo y solución de las tareas del día si no están en la tarea puntual
-  var defaultNovedad = '';
-  var defaultTrabajo = '';
-  var defaultSolucion = '';
+  var defaultNovedad = infExistente ? (infExistente.novedad || '') : '';
+  var defaultTrabajo = infExistente ? (infExistente.trabajo_realizado || '') : '';
+  var defaultSolucion = infExistente ? (infExistente.solucion || '') : '';
   var defaultRecom = '';
   var taskIds = [];
   var taskDescList = [];
@@ -1131,33 +1150,54 @@ function vInformeForm(qs) {
     taskIds.push(tk.id);
     var prefix = dayTasks.length > 1 ? '(' + (idx + 1) + ') ' : '';
     if (tk.descripcion_trabajo) taskDescList.push(prefix + tk.descripcion_trabajo);
-    if (tk.novedad) defaultNovedad += (defaultNovedad ? '\n' : '') + prefix + tk.novedad;
-    if (tk.trabajo_realizado) defaultTrabajo += (defaultTrabajo ? '\n' : '') + prefix + tk.trabajo_realizado;
-    if (tk.solucion) defaultSolucion += (defaultSolucion ? '\n' : '') + prefix + tk.solucion;
-    if (tk.recomendaciones) defaultRecom += (defaultRecom ? '\n' : '') + prefix + tk.recomendaciones;
+    if (!infExistente) {
+      if (tk.novedad) defaultNovedad += (defaultNovedad ? '\n' : '') + prefix + tk.novedad;
+      if (tk.trabajo_realizado) defaultTrabajo += (defaultTrabajo ? '\n' : '') + prefix + tk.trabajo_realizado;
+      if (tk.solucion) defaultSolucion += (defaultSolucion ? '\n' : '') + prefix + tk.solucion;
+      if (tk.recomendaciones) defaultRecom += (defaultRecom ? '\n' : '') + prefix + tk.recomendaciones;
+    }
   });
 
-  if (!defaultTrabajo && taskDescList.length) {
+  if (!infExistente && !defaultTrabajo && taskDescList.length) {
     defaultTrabajo = taskDescList.join('\n');
   }
 
-  // Repuestos cambiados en las tareas de este día
-  var changed = db.repuestos.filter(function (r) {
-    return taskIds.indexOf(r.id_tarea) >= 0 && r.estado_pedido === 'Cambiado';
-  });
+  // Repuestos cambiados en las tareas de este día o en el informe
+  var changed = [];
+  if (infExistente && infExistente.repuestos && infExistente.repuestos.length) {
+    changed = infExistente.repuestos.map(function (r) {
+      return { descripcion_pieza: r.pieza, cantidad: r.cantidad, precio_unitario: r.precio };
+    });
+  } else {
+    changed = db.repuestos.filter(function (r) {
+      return taskIds.indexOf(r.id_tarea) >= 0 && r.estado_pedido === 'Cambiado';
+    });
+  }
 
   var eq = (t && t.id_equipo) ? Store.get('equipos', t.id_equipo) : null;
-  var backUrl = tid ? '#/tarea/' + esc(tid) : '#/empresa/' + esc(empId);
+  if (!eq && infExistente && infExistente.equipo) {
+    eq = {
+      tipo_equipo: infExistente.equipo.tipo,
+      marca: infExistente.equipo.marca,
+      modelo: infExistente.equipo.modelo,
+      nro_serie: infExistente.equipo.serie,
+      ubicacion: infExistente.equipo.ubicacion
+    };
+  }
+
+  var backUrl = infExistente ? ('#/informe/' + esc(infExistente.id)) : (tid ? '#/tarea/' + esc(tid) : '#/empresa/' + esc(empId));
+
+  var isConforme = infExistente ? (infExistente.conformidad !== 'No conforme') : true;
 
   var html = '<div class="stack">' + cardBack(backUrl) +
     '<div class="card pad">' +
-    '<div class="line"><span class="big">Informe de servicio técnico</span></div>' +
+    '<div class="line"><span class="big">' + (infExistente ? ('Editar Informe ' + esc(infExistente.codigo)) : 'Informe de servicio técnico') + '</span></div>' +
     '<div class="kv"><span>Empresa</span><b>' + esc(emp.razon_social) + ' · RUC ' + esc(emp.ruc || '—') + '</b></div>' +
     '<div class="kv"><span>Fecha de atención</span><b>📅 ' + esc(dayLabel(fechaServicio)) + '</b></div>' +
     (eq ? '<div class="kv"><span>Equipo</span><b>' + esc(eqLabel(eq)) + ' · Serie ' + esc(eq.nro_serie || '—') + '</b></div>' : '') +
     '<div class="kv"><span>Labores del día (' + taskIds.length + ')</span><b>' + esc(taskDescList.join(' | ') || 'Servicio general') + '</b></div>' +
     '</div>' +
-    '<form class="card pad" data-f="inf" data-empresa="' + esc(empId) + '" data-fecha="' + esc(fechaServicio) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
+    '<form class="card pad" data-f="inf" data-id="' + (infExistente ? esc(infExistente.id) : '') + '" data-empresa="' + esc(empId) + '" data-fecha="' + esc(fechaServicio) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
     '<h2 class="sec">Contenido del informe</h2>' +
     fieldArea('1. Novedad: lo que se encontró', 'novedad', defaultNovedad, 'Diagnóstico en el sitio') +
     fieldArea('2. Trabajo realizado', 'trabajo_realizado', defaultTrabajo, 'Qué acciones se ejecutaron') +
@@ -1170,14 +1210,14 @@ function vInformeForm(qs) {
   html += '<h2 class="sec">Conformidad del servicio</h2>' +
     '<p class="hint">Indica el resultado y satisfacción del cliente al recibir el equipo o servicio:</p>' +
     '<div class="conformidad-selector">' +
-    '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme" checked> <span>✅ Conforme (Servicio recibido a satisfacción)</span></label>' +
-    '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"> <span>⚠️ No conforme (Observaciones pendientes)</span></label>' +
+    '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme"' + (isConforme ? ' checked' : '') + '> <span>✅ Conforme (Servicio recibido a satisfacción)</span></label>' +
+    '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"' + (!isConforme ? ' checked' : '') + '> <span>⚠️ No conforme (Observaciones pendientes)</span></label>' +
     '</div>' +
-    fieldArea('Observaciones de conformidad (opcional)', 'observaciones_conformidad', '', 'Si es no conforme o requiere aclaración adicional') +
+    fieldArea('Observaciones de conformidad (opcional)', 'observaciones_conformidad', infExistente ? (infExistente.observaciones_conformidad || '') : '', 'Si es no conforme o requiere aclaración adicional') +
     '<h2 class="sec">Datos del responsable y firmas</h2>' +
     '<div class="row2">' +
-    field('Nombre del responsable *', 'nombre_responsable', emp.persona_contacto || '', 'text', 'Quien confirma en el cliente') +
-    field('Cargo', 'cargo_responsable', emp.cargo_contacto || '', 'text', 'Ej: Administrador') +
+    field('Nombre del responsable *', 'nombre_responsable', infExistente ? (infExistente.nombre_responsable || '') : (emp.persona_contacto || ''), 'text', 'Quien confirma en el cliente') +
+    field('Cargo', 'cargo_responsable', infExistente ? (infExistente.cargo_responsable || '') : (emp.cargo_contacto || ''), 'text', 'Ej: Administrador') +
     '</div>' +
     '<div class="fld"><span>Firma del responsable (cliente) *</span>' +
     '<canvas id="padResp" class="sig"></canvas>' +
@@ -1185,14 +1225,23 @@ function vInformeForm(qs) {
     '<div class="fld"><span>Firma del técnico</span>' +
     '<canvas id="padTec" class="sig"></canvas>' +
     '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padTec">Limpiar firma</button></div>' +
-    '<button class="btn primary block" type="submit">Guardar informe y cerrar jornada</button>' +
-    '<p class="hint">Al guardar, las tareas de esta fecha pasarán a Completadas y el informe quedará archivado.</p>' +
+    '<button class="btn primary block" type="submit">' + (infExistente ? 'Actualizar informe' : 'Guardar informe y cerrar jornada') + '</button>' +
+    '<p class="hint">' + (infExistente ? 'Los cambios se actualizarán manteniendo el código del informe.' : 'Al guardar, las tareas de esta fecha pasarán a Completadas y el informe quedará archivado.') + '</p>' +
     '</form></div>';
   $('#view').innerHTML = html;
-  window._pads = { resp: initPad('padResp'), tec: initPad('padTec') };
+  var padResp = initPad('padResp');
+  var padTec = initPad('padTec');
+  window._pads = { resp: padResp, tec: padTec };
+
+  // Si estamos editando, precargar las firmas previas en el canvas
+  if (infExistente) {
+    if (infExistente.firma_responsable && padResp) padResp.fromDataURL(infExistente.firma_responsable);
+    if (infExistente.firma_tecnico && padTec) padTec.fromDataURL(infExistente.firma_tecnico);
+  }
 }
 
 function saveInforme(form) {
+  var infId = form.dataset.id;
   var empId = form.dataset.empresa;
   var fechaServicio = form.dataset.fecha || Store.today();
   var taskIdsStr = form.dataset.tasks || '';
@@ -1201,21 +1250,68 @@ function saveInforme(form) {
   var emp = Store.get('empresas', empId);
   if (!emp) { toast('Empresa no encontrada'); return; }
 
+  var existingInf = infId ? Store.get('informes', infId) : null;
   var d = readForm(form);
   var pads = window._pads || {};
   if (!d.nombre_responsable.trim()) { toast('Escribe el nombre del responsable'); return; }
+
   var sigR = pads.resp ? pads.resp.dataURL() : '';
+  if (!sigR && existingInf && existingInf.firma_responsable) {
+    sigR = existingInf.firma_responsable;
+  }
   if (!sigR) { toast('El responsable debe firmar con el dedo'); return; }
+
   var sigT = pads.tec ? pads.tec.dataURL() : '';
+  if (!sigT && existingInf && existingInf.firma_tecnico) {
+    sigT = existingInf.firma_tecnico;
+  }
 
   // Repuestos cambiados en las tareas involucradas
   var changed = Store.coll('repuestos').filter(function (r) {
     return taskIds.indexOf(String(r.id_tarea)) >= 0 && r.estado_pedido === 'Cambiado';
   });
+  if (!changed.length && existingInf && existingInf.repuestos && existingInf.repuestos.length) {
+    changed = existingInf.repuestos.map(function (r) {
+      return { descripcion_pieza: r.pieza, cantidad: r.cantidad, precio_unitario: r.precio };
+    });
+  }
 
   var primerTarea = taskIds.length ? Store.get('tareas', taskIds[0]) : null;
   var eq = (primerTarea && primerTarea.id_equipo) ? Store.get('equipos', primerTarea.id_equipo) : null;
+  if (!eq && existingInf && existingInf.equipo) {
+    eq = {
+      tipo_equipo: existingInf.equipo.tipo,
+      marca: existingInf.equipo.marca,
+      modelo: existingInf.equipo.modelo,
+      nro_serie: existingInf.equipo.serie,
+      ubicacion: existingInf.equipo.ubicacion
+    };
+  }
 
+  var repuestosData = changed.map(function (r) {
+    return { pieza: r.descripcion_pieza, cantidad: r.cantidad, precio: r.precio_unitario };
+  });
+
+  if (infId && existingInf) {
+    // MODO ACTUALIZACIÓN
+    existingInf.novedad = d.novedad;
+    existingInf.trabajo_realizado = d.trabajo_realizado;
+    existingInf.solucion = d.solucion;
+    existingInf.conformidad = d.conformidad || 'Conforme';
+    existingInf.observaciones_conformidad = d.observaciones_conformidad || '';
+    existingInf.nombre_responsable = d.nombre_responsable;
+    existingInf.cargo_responsable = d.cargo_responsable;
+    if (sigR) existingInf.firma_responsable = sigR;
+    if (sigT) existingInf.firma_tecnico = sigT;
+    existingInf.fecha_modificacion = Store.nowLocal();
+
+    Store.upd('informes', infId, existingInf);
+    toast('Informe ' + existingInf.codigo + ' actualizado');
+    location.hash = '#/informe/' + infId;
+    return;
+  }
+
+  // MODO CREACIÓN NUEVA
   var row = {
     codigo: Store.nextInfCode(),
     id_empresa: empId,
@@ -1229,7 +1325,7 @@ function saveInforme(form) {
     novedad: d.novedad,
     trabajo_realizado: d.trabajo_realizado,
     solucion: d.solucion,
-    repuestos: changed.map(function (r) { return { pieza: r.descripcion_pieza, cantidad: r.cantidad, precio: r.precio_unitario }; }),
+    repuestos: repuestosData,
     conformidad: d.conformidad || 'Conforme',
     observaciones_conformidad: d.observaciones_conformidad || '',
     nombre_responsable: d.nombre_responsable,
@@ -1287,7 +1383,7 @@ function vInforme(id) {
   var x = Store.get('informes', id);
   if (!x) { location.hash = '#/informes'; return; }
   setTitle('Informe ' + x.codigo);
-  setNew(null);
+  setNew('<a class="btn secondary sm" href="#/informe-form?edit=' + esc(id) + '">✏️ Editar</a>');
   var e = x.empresa || {};
   var eq = x.equipo;
   var fServ = x.fecha_servicio ? dayLabel(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
@@ -1300,6 +1396,7 @@ function vInforme(id) {
 
   var html = '<div class="stack no-print">' + '<a class="btn ghost sm" href="#/informes">← Volver a Informes</a>' +
     '<div class="btnrow">' +
+    '<a class="btn secondary sm" href="#/informe-form?edit=' + esc(id) + '">✏️ Editar informe</a>' +
     '<button class="btn primary sm" data-act="wa-share" data-id="' + esc(id) + '">📱 Enviar por WhatsApp</button>' +
     '<button class="btn secondary sm" data-act="print">🖨️ PDF / Imprimir</button>' +
     '<button class="btn danger sm" data-act="del-inf" data-id="' + esc(id) + '">Eliminar</button>' +
