@@ -142,11 +142,37 @@ window.Store = (function () {
     return db;
   }
 
+  function getTareasPorFecha(idEmpresa) {
+    var list = db.tareas.filter(function (t) {
+      return !idEmpresa || String(t.id_empresa) === String(idEmpresa);
+    });
+    // Agrupar por fecha_trabajo (usar fecha_trabajo o fecha_programada o fecha_creacion)
+    var groups = {};
+    list.forEach(function (t) {
+      var f = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || today();
+      if (!groups[f]) groups[f] = [];
+      groups[f].push(t);
+    });
+    // Ordenar fechas descendente
+    var sortedDates = Object.keys(groups).sort(function (a, b) {
+      return b.localeCompare(a);
+    });
+    return sortedDates.map(function (f) {
+      return { fecha: f, tareas: groups[f] };
+    });
+  }
+
+  function getFechasEmpresa(idEmpresa) {
+    var groups = getTareasPorFecha(idEmpresa);
+    return groups.map(function (g) { return g.fecha; });
+  }
+
   load();
   return {
     get db() { return db; },
     load: load, save: save, coll: coll, get: get, add: add, upd: upd, del: del,
     today: today, nowLocal: nowLocal, exportJSON: exportJSON, importJSON: importJSON,
-    reset: reset, nextInfCode: nextInfCode, demo: demo
+    reset: reset, nextInfCode: nextInfCode, demo: demo,
+    getTareasPorFecha: getTareasPorFecha, getFechasEmpresa: getFechasEmpresa
   };
 })();

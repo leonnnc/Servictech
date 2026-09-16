@@ -71,9 +71,26 @@ window.Cloud = (function () {
           fb.db = fsMod.initializeFirestore(fb.app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
         } catch (e) { fb.db = fsMod.getFirestore(fb.app); }
         st.ready = true; st.loading = false;
-        authMod.onAuthStateChanged(fb.auth, function (u) {
+        authMod.onAuthStateChanged(fb.auth, async function (u) {
           st.user = u || null;
-          if (u) { setMeta({ email: u.email }); startAuto(); pull(false); } else { stopAuto(); }
+          if (u) {
+            setMeta({ email: u.email || 'Sesión transparente' });
+            startAuto();
+            pull(false);
+          } else {
+            // Intentar autenticación anónima transparente para no solicitar credenciales al usuario
+            try {
+              var cred = await authMod.signInAnonymously(fb.auth);
+              st.user = cred.user;
+              setMeta({ email: 'Sesión transparente' });
+              startAuto();
+              pull(false);
+            } catch (errAnon) {
+              // Si la auth anónima no estuviera habilitada, conservamos sesión local
+              console.warn('Auth transparente no disponible:', errAnon.message);
+              stopAuto();
+            }
+          }
           emit();
         });
         emit();

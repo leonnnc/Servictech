@@ -37,6 +37,18 @@ function fmtDT(iso) {
   return fmtDate(iso.slice(0, 10)) + ' ' + iso.slice(11, 16);
 }
 
+function dayLabel(isoDate) {
+  if (!isoDate) return 'Sin fecha';
+  var t = Store.today();
+  var dIso = isoDate.slice(0, 10);
+  if (dIso === t) return 'Hoy (' + fmtDate(dIso) + ')';
+  var yest = new Date();
+  yest.setDate(yest.getDate() - 1);
+  var yIso = yest.toISOString().slice(0, 10);
+  if (dIso === yIso) return 'Ayer (' + fmtDate(dIso) + ')';
+  return fmtDate(dIso);
+}
+
 var EST_TAREA = { 'Pendiente': 'warn', 'En curso': 'info', 'Esperando repuestos': 'warn2', 'Completada': 'ok', 'Cancelada': 'mute' };
 var EST_REP = { 'Por comprar': 'warn', 'Pedido': 'info', 'Recibido': 'info', 'Cambiado': 'ok' };
 var TIPOS_TAREA = ['Correctivo', 'Preventivo', 'Instalación', 'Retiro', 'Otro'];
@@ -341,18 +353,41 @@ function vEmpresa(id) {
   });
   html += '<a class="btn secondary sm" href="#/equipo-form?empresa=' + esc(e.id) + '">+ Registrar equipo</a>';
 
-  html += '<h2 class="sec">Historial de tareas (' + tars.length + ')</h2>';
-  if (!tars.length) html += '<div class="empty sm"><p>Sin tareas todavía.</p></div>';
-  tars.forEach(function (t) {
-    html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
-      '<div class="row-main"><div class="t">' + esc(t.descripcion_trabajo || eqName(t.id_equipo)) + '</div>' +
-      '<div class="s">' + fmtDate(t.fecha_creacion) + ' · ' + esc(t.tipo_tarea || '') + '</div></div>' +
-      '<div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
-  });
-  html += '<a class="btn secondary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Nueva tarea</a>';
+  html += '<div class="line" style="margin-top:18px;margin-bottom:6px;"><h2 class="sec" style="margin:0;">Jornadas y tareas (' + tars.length + ')</h2>' +
+    '<a class="btn primary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Nueva tarea</a></div>';
+
+  var dayGroups = Store.getTareasPorFecha(id);
+  if (!dayGroups.length) {
+    html += '<div class="empty sm"><p>Sin tareas todavía.</p><a class="btn secondary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Registrar primera tarea</a></div>';
+  } else {
+    dayGroups.forEach(function (group) {
+      var dFmt = dayLabel(group.fecha);
+      var infExistente = infs.find(function (inf) {
+        return inf.fecha_servicio === group.fecha || (inf.fecha_emision && inf.fecha_emision.slice(0, 10) === group.fecha);
+      });
+      html += '<div class="day-card">' +
+        '<div class="day-head">' +
+        '<div class="day-title"><span>📅 ' + esc(dFmt) + '</span><span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
+        '<div class="day-actions">' +
+        (infExistente ?
+          '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/informe/' + esc(infExistente.id) + '">Ver informe ' + esc(infExistente.codigo) + '</a>' :
+          '<a class="btn secondary sm" style="font-size:11.5px;padding:3px 8px;" href="#/informe-form?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">📝 Informe del día</a>'
+        ) +
+        '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/tarea-form?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">+ Tarea</a>' +
+        '</div></div>' +
+        '<div class="day-items">';
+      group.tareas.forEach(function (t) {
+        html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
+          '<div class="row-main"><div class="t">' + esc(t.descripcion_trabajo || eqName(t.id_equipo)) + '</div>' +
+          '<div class="s">' + esc(eqName(t.id_equipo)) + (t.tipo_tarea ? ' · ' + esc(t.tipo_tarea) : '') + '</div></div>' +
+          '<div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
+      });
+      html += '</div></div>';
+    });
+  }
 
   if (infs.length) {
-    html += '<h2 class="sec">Informes emitidos (' + infs.length + ')</h2>';
+    html += '<h2 class="sec" style="margin-top:20px;">Informes emitidos (' + infs.length + ')</h2>';
     infs.forEach(function (x) {
       html += '<a class="card row" href="#/informe/' + esc(x.id) + '"><div class="row-main"><div class="t">' + esc(x.codigo) + '</div><div class="s">' + fmtDT(x.fecha_emision) + ' · ' + esc(x.nombre_responsable || 'sin firma') + '</div></div><div class="row-meta">PDF</div></a>';
     });
@@ -478,21 +513,42 @@ function saveEquipo(form) {
 function tarListHtml(q, est) {
   var db = Store.db;
   q = (q || '').toLowerCase();
-  var list = db.tareas.slice().sort(function (a, b) { return (b.fecha_creacion || '').localeCompare(a.fecha_creacion || ''); });
+  var list = db.tareas.slice();
   if (est) list = list.filter(function (t) { return t.estado === est; });
   if (q) list = list.filter(function (t) {
     return (empName(t.id_empresa) + ' ' + eqName(t.id_equipo) + ' ' + (t.descripcion_trabajo || '')).toLowerCase().indexOf(q) >= 0;
   });
-  var html = '';
-  if (!list.length) html += '<div class="empty"><p>' + (db.tareas.length ? 'Sin tareas para este filtro.' : 'No hay tareas. Crea una desde el botón + Nueva.') + '</p></div>';
+  if (!list.length) {
+    return '<div class="empty"><p>' + (db.tareas.length ? 'Sin tareas para este filtro.' : 'No hay tareas. Crea una desde el botón + Nueva.') + '</p></div>';
+  }
+
+  // Agrupar por fecha
+  var groups = {};
   list.forEach(function (t) {
-    var cod = 'T-' + String(t.id).padStart(4, '0');
-    html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
-      '<div class="row-main">' +
-      '<div class="t">' + esc(t.descripcion_trabajo || '(sin descripción)') + '</div>' +
-      '<div class="s">' + esc(empName(t.id_empresa)) + ' · ' + esc(eqName(t.id_equipo)) + '</div>' +
-      '<div class="s">' + cod + ' · ' + fmtDate(t.fecha_programada || t.fecha_creacion) + (t.prioridad ? ' · ' + esc(t.prioridad) : '') + '</div>' +
-      '</div><div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
+    var f = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || Store.today();
+    if (!groups[f]) groups[f] = [];
+    groups[f].push(t);
+  });
+  var sortedDates = Object.keys(groups).sort(function (a, b) { return b.localeCompare(a); });
+
+  var html = '';
+  sortedDates.forEach(function (f) {
+    var dFmt = dayLabel(f);
+    html += '<div class="day-card">' +
+      '<div class="day-head">' +
+      '<div class="day-title"><span>📅 ' + esc(dFmt) + '</span><span class="day-badge">' + pl(groups[f].length, 'tarea', 'tareas') + '</span></div>' +
+      '</div>' +
+      '<div class="day-items">';
+    groups[f].forEach(function (t) {
+      var cod = 'T-' + String(t.id).padStart(4, '0');
+      html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
+        '<div class="row-main">' +
+        '<div class="t">' + esc(t.descripcion_trabajo || '(sin descripción)') + '</div>' +
+        '<div class="s">' + esc(empName(t.id_empresa)) + ' · ' + esc(eqName(t.id_equipo)) + '</div>' +
+        '<div class="s">' + cod + (t.prioridad ? ' · ' + esc(t.prioridad) : '') + '</div>' +
+        '</div><div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
+    });
+    html += '</div></div>';
   });
   return html;
 }
@@ -545,8 +601,8 @@ function vTareaForm(qs) {
     '</div>' +
     fieldArea('Recomendaciones', 'recomendaciones', v('recomendaciones')) +
     '<div class="row2">' +
+    field('Fecha del trabajo (día)', 'fecha_trabajo', v('fecha_trabajo') || qs.get('fecha') || Store.today(), 'date', '', true) +
     field('Técnico responsable', 'tecnico_responsable', v('tecnico_responsable') || Store.db.meta.tecnico || '', 'text', 'Tu nombre') +
-    field('Fecha programada', 'fecha_programada', v('fecha_programada'), 'date') +
     '</div>' +
     '<button class="btn primary block" type="submit">' + (t ? 'Guardar cambios' : 'Crear tarea') + '</button>' +
     '</form></div>';
@@ -564,6 +620,7 @@ function saveTarea(form) {
   d.id_equipo = d.id_equipo_sel; delete d.id_equipo_sel;
   if (!d.id_empresa) { toast('Elige la empresa'); return; }
   if (!d.descripcion_trabajo.trim()) { toast('Escribe una descripción'); return; }
+  d.fecha_trabajo = d.fecha_trabajo || Store.today();
   d.informe_emitido = (d.informe_emitido === 'true');
   var id = form.dataset.id;
   if (id) { Store.upd('tareas', id, d); toast('Tarea actualizada'); }
@@ -736,11 +793,12 @@ function vInformes() {
   var db = Store.db;
   var list = db.informes.slice().sort(function (a, b) { return (b.fecha_emision || '').localeCompare(a.fecha_emision || ''); });
   var html = '';
-  if (!list.length) html += '<div class="empty"><p>Aún no hay informes. Abre una tarea y elige "Generar informe y firmar".</p><a class="btn primary" href="#/informe-form">Crear informe desde una tarea</a></div>';
+  if (!list.length) html += '<div class="empty"><p>Aún no hay informes emitidos.</p><a class="btn primary" href="#/informe-form">Crear informe por empresa y fecha</a></div>';
   list.forEach(function (x) {
+    var fServ = x.fecha_servicio ? fmtDate(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
     html += '<a class="card row" href="#/informe/' + esc(x.id) + '">' +
-      '<div class="row-main"><div class="t">Informe ' + esc(x.codigo) + '</div>' +
-      '<div class="s">' + esc((x.empresa || {}).razon_social || '') + ' · ' + fmtDT(x.fecha_emision) + '</div>' +
+      '<div class="row-main"><div class="t">Informe ' + esc(x.codigo) + ' · ' + esc((x.empresa || {}).razon_social || '') + '</div>' +
+      '<div class="s">Jornada: <b>' + esc(fServ) + '</b> · Emitido: ' + fmtDT(x.fecha_emision) + '</div>' +
       '<div class="s">Responsable: ' + esc(x.nombre_responsable || 'sin firma') + '</div></div>' +
       '<div class="row-meta">' + (x.firma_responsable ? '<span class="badge ok">Firmado</span>' : '<span class="badge warn">Sin firma</span>') + '</div></a>';
   });
@@ -785,47 +843,98 @@ function initPad(id) {
 
 function vInformeForm(qs) {
   var tid = qs.get('tarea');
-  var t = tid ? Store.get('tareas', tid) : null;
-  setTitle(t ? 'Informe de servicio' : 'Nuevo informe');
-  setNew(null);
+  var empId = qs.get('empresa');
+  var fechaServicio = qs.get('fecha') || Store.today();
   var db = Store.db;
-  if (!t) {
-    var pend = db.tareas.filter(function (x) { return x.estado !== 'Completada' && x.estado !== 'Cancelada'; });
-    var opts = pend.map(function (x) {
-      return '<option value="' + esc(x.id) + '">' + esc(empName(x.id_empresa)) + ' — ' + esc(x.descripcion_trabajo || 'T-' + x.id) + '</option>';
+  var t = tid ? Store.get('tareas', tid) : null;
+  if (t) {
+    empId = t.id_empresa;
+    fechaServicio = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || fechaServicio;
+  }
+
+  // Si no se ha especificado empresa, mostrar selector de empresa y fecha
+  if (!empId) {
+    var empOpts = Store.coll('empresas').map(function (e) {
+      return '<option value="' + esc(e.id) + '">' + esc(e.razon_social) + ' (RUC ' + esc(e.ruc) + ')</option>';
     }).join('');
     $('#view').innerHTML =
       '<div class="stack">' + cardBack('#/informes') +
-      '<form class="card pad" data-f="seltar">' +
-      '<label class="fld"><span>Tarea a informar</span><select name="tarea" required>' + (opts || '<option value="">— No hay tareas abiertas —</option>') + '</select></label>' +
+      '<form class="card pad" data-f="sel-inf-emp">' +
+      '<h2 class="sec">Crear informe de servicio</h2>' +
+      '<label class="fld"><span>Empresa</span><select name="empresa" required>' +
+      '<option value="">— Seleccionar empresa —</option>' + empOpts + '</select></label>' +
+      field('Fecha de la jornada / servicio', 'fecha', Store.today(), 'date', '', true) +
       '<button class="btn primary block" type="submit">Continuar</button>' +
       '</form></div>';
     return;
   }
-  var emp = Store.get('empresas', t.id_empresa);
-  var eq = t.id_equipo ? Store.get('equipos', t.id_equipo) : null;
-  var changed = db.repuestos.filter(function (r) { return String(r.id_tarea) === String(t.id) && r.estado_pedido === 'Cambiado'; });
-  var html = '<div class="stack">' + cardBack(tid ? '#/tarea/' + esc(tid) : '#/informes') +
+
+  var emp = Store.get('empresas', empId);
+  if (!emp) { toast('Empresa no encontrada'); location.hash = '#/informes'; return; }
+
+  setTitle('Informe: ' + emp.razon_social);
+  setNew(null);
+
+  // Obtener todas las tareas de esta empresa correspondientes a esta fecha (o la tarea puntual si viene por tid)
+  var dayTasks = db.tareas.filter(function (x) {
+    if (String(x.id_empresa) !== String(empId)) return false;
+    if (tid && String(x.id) === String(tid)) return true;
+    var xf = x.fecha_trabajo || x.fecha_programada || x.fecha_creacion || '';
+    return xf === fechaServicio;
+  });
+
+  // Consolidar novedad, trabajo y solución de las tareas del día si no están en la tarea puntual
+  var defaultNovedad = '';
+  var defaultTrabajo = '';
+  var defaultSolucion = '';
+  var defaultRecom = '';
+  var taskIds = [];
+  var taskDescList = [];
+
+  dayTasks.forEach(function (tk, idx) {
+    taskIds.push(tk.id);
+    var prefix = dayTasks.length > 1 ? '(' + (idx + 1) + ') ' : '';
+    if (tk.descripcion_trabajo) taskDescList.push(prefix + tk.descripcion_trabajo);
+    if (tk.novedad) defaultNovedad += (defaultNovedad ? '\n' : '') + prefix + tk.novedad;
+    if (tk.trabajo_realizado) defaultTrabajo += (defaultTrabajo ? '\n' : '') + prefix + tk.trabajo_realizado;
+    if (tk.solucion) defaultSolucion += (defaultSolucion ? '\n' : '') + prefix + tk.solucion;
+    if (tk.recomendaciones) defaultRecom += (defaultRecom ? '\n' : '') + prefix + tk.recomendaciones;
+  });
+
+  if (!defaultTrabajo && taskDescList.length) {
+    defaultTrabajo = taskDescList.join('\n');
+  }
+
+  // Repuestos cambiados en las tareas de este día
+  var changed = db.repuestos.filter(function (r) {
+    return taskIds.indexOf(r.id_tarea) >= 0 && r.estado_pedido === 'Cambiado';
+  });
+
+  var eq = (t && t.id_equipo) ? Store.get('equipos', t.id_equipo) : null;
+  var backUrl = tid ? '#/tarea/' + esc(tid) : '#/empresa/' + esc(empId);
+
+  var html = '<div class="stack">' + cardBack(backUrl) +
     '<div class="card pad">' +
     '<div class="line"><span class="big">Informe de servicio técnico</span></div>' +
-    '<div class="kv"><span>Empresa</span><b>' + esc(emp ? emp.razon_social : '') + ' · RUC ' + esc(emp ? emp.ruc : '') + '</b></div>' +
-    '<div class="kv"><span>Equipo</span><b>' + (eq ? esc(eqLabel(eq)) + ' · Serie ' + esc(eq.nro_serie || '—') : 'Servicio general') + '</b></div>' +
-    '<div class="kv"><span>Tarea</span><b>' + esc(t.descripcion_trabajo || '') + '</b></div>' +
+    '<div class="kv"><span>Empresa</span><b>' + esc(emp.razon_social) + ' · RUC ' + esc(emp.ruc || '—') + '</b></div>' +
+    '<div class="kv"><span>Fecha de atención</span><b>📅 ' + esc(dayLabel(fechaServicio)) + '</b></div>' +
+    (eq ? '<div class="kv"><span>Equipo</span><b>' + esc(eqLabel(eq)) + ' · Serie ' + esc(eq.nro_serie || '—') + '</b></div>' : '') +
+    '<div class="kv"><span>Labores del día (' + taskIds.length + ')</span><b>' + esc(taskDescList.join(' | ') || 'Servicio general') + '</b></div>' +
     '</div>' +
-    '<form class="card pad" data-f="inf" data-tarea="' + esc(t.id) + '">' +
+    '<form class="card pad" data-f="inf" data-empresa="' + esc(empId) + '" data-fecha="' + esc(fechaServicio) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
     '<h2 class="sec">Contenido del informe</h2>' +
-    fieldArea('1. Novedad: lo que se encontró', 'novedad', t.novedad, 'Diagnóstico en el sitio') +
-    fieldArea('2. Trabajo realizado', 'trabajo_realizado', t.trabajo_realizado, 'Qué acciones se ejecutaron') +
-    fieldArea('3. Solución / estado final', 'solucion', t.solucion, 'Equipo operativo, pendientes…') +
+    fieldArea('1. Novedad: lo que se encontró', 'novedad', defaultNovedad, 'Diagnóstico en el sitio') +
+    fieldArea('2. Trabajo realizado', 'trabajo_realizado', defaultTrabajo, 'Qué acciones se ejecutaron') +
+    fieldArea('3. Solución / estado final', 'solucion', defaultSolucion, 'Equipo operativo, entrega conforme…') +
     '<h2 class="sec">Repuestos utilizados</h2>';
-  if (!changed.length) html += '<p class="hint">Sin repuestos cambiados. (Los repuestos con estado "Cambiado" de esta tarea aparecen aquí.)</p>';
+  if (!changed.length) html += '<p class="hint">Sin repuestos cambiados en esta jornada.</p>';
   changed.forEach(function (r) {
     html += '<div class="kv"><span>' + esc(r.descripcion_pieza) + '</span><b>x' + esc(r.cantidad) + ' · ' + money(r.precio_unitario) + '</b></div>';
   });
   html += '<h2 class="sec">Conformidad del responsable</h2>' +
     '<div class="row2">' +
-    field('Nombre del responsable *', 'nombre_responsable', '', 'text', 'Quien confirma en el cliente') +
-    field('Cargo', 'cargo_responsable', '', 'text', 'Ej: Administrador') +
+    field('Nombre del responsable *', 'nombre_responsable', emp.persona_contacto || '', 'text', 'Quien confirma en el cliente') +
+    field('Cargo', 'cargo_responsable', emp.cargo_contacto || '', 'text', 'Ej: Administrador') +
     '</div>' +
     '<label class="fld"><span>Firma del responsable (cliente) *</span>' +
     '<canvas id="padResp" class="sig"></canvas>' +
@@ -833,32 +942,46 @@ function vInformeForm(qs) {
     '<label class="fld"><span>Firma del técnico</span>' +
     '<canvas id="padTec" class="sig"></canvas>' +
     '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padTec">Limpiar firma</button></label>' +
-    '<button class="btn primary block" type="submit">Guardar informe y cerrar tarea</button>' +
-    '<p class="hint">Al guardar, la tarea pasará a Completada y el informe quedará archivado en el historial de la empresa.</p>' +
+    '<button class="btn primary block" type="submit">Guardar informe y cerrar jornada</button>' +
+    '<p class="hint">Al guardar, las tareas de esta fecha pasarán a Completadas y el informe quedará archivado.</p>' +
     '</form></div>';
   $('#view').innerHTML = html;
   window._pads = { resp: initPad('padResp'), tec: initPad('padTec') };
 }
 
 function saveInforme(form) {
-  var tid = form.dataset.tarea;
-  var t = Store.get('tareas', tid);
-  if (!t) { toast('Tarea no encontrada'); return; }
+  var empId = form.dataset.empresa;
+  var fechaServicio = form.dataset.fecha || Store.today();
+  var taskIdsStr = form.dataset.tasks || '';
+  var taskIds = taskIdsStr ? taskIdsStr.split(',').filter(Boolean) : [];
+
+  var emp = Store.get('empresas', empId);
+  if (!emp) { toast('Empresa no encontrada'); return; }
+
   var d = readForm(form);
   var pads = window._pads || {};
   if (!d.nombre_responsable.trim()) { toast('Escribe el nombre del responsable'); return; }
   var sigR = pads.resp ? pads.resp.dataURL() : '';
   if (!sigR) { toast('El responsable debe firmar con el dedo'); return; }
   var sigT = pads.tec ? pads.tec.dataURL() : '';
-  var emp = Store.get('empresas', t.id_empresa);
-  var eq = t.id_equipo ? Store.get('equipos', t.id_equipo) : null;
-  var changed = Store.coll('repuestos').filter(function (r) { return String(r.id_tarea) === String(tid) && r.estado_pedido === 'Cambiado'; });
+
+  // Repuestos cambiados en las tareas involucradas
+  var changed = Store.coll('repuestos').filter(function (r) {
+    return taskIds.indexOf(String(r.id_tarea)) >= 0 && r.estado_pedido === 'Cambiado';
+  });
+
+  var primerTarea = taskIds.length ? Store.get('tareas', taskIds[0]) : null;
+  var eq = (primerTarea && primerTarea.id_equipo) ? Store.get('equipos', primerTarea.id_equipo) : null;
+
   var row = {
     codigo: Store.nextInfCode(),
-    id_tarea: tid,
+    id_empresa: empId,
+    fecha_servicio: fechaServicio,
+    task_ids: taskIds,
+    id_tarea: taskIds[0] || '',
     fecha_emision: Store.nowLocal(),
-    tecnico: t.tecnico_responsable || Store.db.meta.tecnico || '',
-    empresa: emp ? { razon_social: emp.razon_social, ruc: emp.ruc, direccion: emp.direccion, contacto: emp.persona_contacto } : {},
+    tecnico: (primerTarea && primerTarea.tecnico_responsable) || Store.db.meta.tecnico || '',
+    empresa: { razon_social: emp.razon_social, ruc: emp.ruc, direccion: emp.direccion, contacto: emp.persona_contacto },
     equipo: eq ? { tipo: eq.tipo_equipo, marca: eq.marca, modelo: eq.modelo, serie: eq.nro_serie, ubicacion: eq.ubicacion } : null,
     novedad: d.novedad,
     trabajo_realizado: d.trabajo_realizado,
@@ -871,11 +994,18 @@ function saveInforme(form) {
     enviado_a: '',
     fecha_envio: ''
   };
+
   var nuevo = Store.add('informes', row);
-  Store.upd('tareas', tid, {
-    estado: 'Completada', informe_emitido: true, fecha_fin: Store.nowLocal(),
-    novedad: d.novedad, trabajo_realizado: d.trabajo_realizado, solucion: d.solucion
+
+  // Marcar todas las tareas de la jornada como completadas
+  taskIds.forEach(function (tid) {
+    Store.upd('tareas', tid, {
+      estado: 'Completada',
+      informe_emitido: true,
+      fecha_fin: Store.nowLocal()
+    });
   });
+
   toast('Informe ' + row.codigo + ' guardado');
   location.hash = '#/informe/' + nuevo.id;
 }
@@ -885,7 +1015,8 @@ function informeText(x) {
   var eq = x.equipo;
   var L = [];
   L.push('INFORME DE SERVICIO TECNICO ' + (x.codigo || ''));
-  L.push('Fecha: ' + fmtDT(x.fecha_emision));
+  if (x.fecha_servicio) L.push('Fecha de atencion / jornada: ' + fmtDate(x.fecha_servicio));
+  L.push('Fecha de emision: ' + fmtDT(x.fecha_emision));
   L.push('');
   L.push('EMPRESA');
   L.push(e.razon_social || '');
@@ -911,6 +1042,7 @@ function vInforme(id) {
   setNew(null);
   var e = x.empresa || {};
   var eq = x.equipo;
+  var fServ = x.fecha_servicio ? dayLabel(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
   var html = '<div class="stack no-print">' + '<a class="btn ghost sm" href="#/informes">← Volver</a>' +
     '<div class="btnrow">' +
     '<button class="btn primary sm" data-act="wa-share" data-id="' + esc(id) + '">Enviar por WhatsApp</button>' +
@@ -922,9 +1054,11 @@ function vInforme(id) {
     '<div class="rep-head">' +
     '<div class="rep-t">INFORME DE SERVICIO TÉCNICO</div>' +
     '<div class="rep-code">N° ' + esc(x.codigo) + '</div>' +
-    '<div class="rep-sub">' + fmtDT(x.fecha_emision) + ' · Técnico: ' + esc(x.tecnico || '—') + '</div>' +
+    '<div class="rep-sub">Jornada: <b>' + esc(fServ) + '</b> · Emisión: ' + fmtDT(x.fecha_emision) + ' · Técnico: ' + esc(x.tecnico || '—') + '</div>' +
     '</div>' +
-    '<table class="rep-tbl"><tr><th>Empresa</th><td>' + esc(e.razon_social || '') + (e.ruc ? '<br>RUC ' + esc(e.ruc) : '') + (e.direccion ? '<br>' + esc(e.direccion) : '') + (e.contacto ? '<br>Contacto: ' + esc(e.contacto) : '') + '</td></tr>' +
+    '<table class="rep-tbl">' +
+    '<tr><th>Empresa</th><td>' + esc(e.razon_social || '') + (e.ruc ? '<br>RUC ' + esc(e.ruc) : '') + (e.direccion ? '<br>' + esc(e.direccion) : '') + (e.contacto ? '<br>Contacto: ' + esc(e.contacto) : '') + '</td></tr>' +
+    '<tr><th>Fecha de jornada</th><td><b>' + esc(fServ) + '</b></td></tr>' +
     (eq ? '<tr><th>Equipo</th><td>' + esc([eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' ')) + (eq.serie ? '<br>Serie: ' + esc(eq.serie) : '') + (eq.ubicacion ? ' · ' + esc(eq.ubicacion) : '') + '</td></tr>' : '') +
     '</table>' +
     '<h4>1. Lo que se encontró</h4><p class="rep-p">' + esc(x.novedad || '—') + '</p>' +
@@ -1008,34 +1142,41 @@ function fmtMs(ms) {
   return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
+function updateCloudStatus() {
+  var el = $('#cloudStatus');
+  if (!el || !window.Cloud) return;
+  var dot = $('.cloud-dot', el);
+  var s = Cloud.status();
+  if (dot) {
+    dot.className = 'cloud-dot';
+    if (s.pending || s.loading) {
+      dot.classList.add('syncing');
+      el.title = 'Sincronizando con Firebase…';
+    } else if (s.connected || s.ready) {
+      dot.classList.add('ok');
+      el.title = 'Conectado a Firebase (' + (s.user || 'automático') + ') · ' + (s.lastSync ? 'Última sinc: ' + fmtMs(s.lastSync) : 'Sincronizado');
+    } else if (s.error) {
+      dot.classList.add('err');
+      el.title = 'Aviso de nube: ' + s.error;
+    } else {
+      el.title = 'Modo local activo';
+    }
+  }
+}
+
 function renderCloudBox() {
+  updateCloudStatus();
   var box = $('#cloudBox');
   if (!box || !window.Cloud) return;
   var s = Cloud.status();
-  var h = '';
-  if (!s.configured) {
-    h += '<p class="hint">No hay configuración de Firebase. Pega el bloque <b>firebaseConfig</b> de tu proyecto:</p>' +
-      '<textarea id="clCfg" class="ta" rows="7" placeholder="{ apiKey: ..., projectId: ... }"></textarea>' +
-      '<div class="btnrow"><button class="btn primary sm" data-act="cloud-save-cfg">Guardar configuración</button></div>';
-  } else if (!s.connected) {
-    h += '<p class="hint">Proyecto: <b>' + esc(s.project) + '</b>. Entra con el usuario que creaste en Firebase → Authentication → Users.</p>' +
-      (s.loading ? '<p class="hint">Cargando Firebase…</p>' : '') +
-      '<div class="fld"><label>Correo</label><input id="clEmail" type="email" value="' + esc(s.user || '') + '" placeholder="tu@correo.com"></div>' +
-      '<div class="fld"><label>Contraseña</label><input id="clPass" type="password" placeholder="contraseña de la app"></div>' +
-      '<div class="btnrow"><button class="btn primary sm" data-act="cloud-connect">Conectar</button>' +
-      '<button class="btn ghost sm" data-act="cloud-cfg-edit">Cambiar configuración</button></div>' +
-      '<p class="hint">La sesión queda guardada: solo escribes la contraseña una vez por dispositivo.</p>';
-  } else {
-    h += '<div class="cloud-on"><span class="dot ok"></span><div><b>Conectado</b><div class="s">' + esc(s.user) + '</div></div></div>' +
-      '<p class="hint">Última sincronización: ' + fmtMs(s.lastSync) + (s.pending ? ' · subiendo…' : '') + '</p>' +
-      '<div class="btnrow">' +
-      '<button class="btn secondary sm" data-act="cloud-sync">Sincronizar ahora</button>' +
-      '<button class="btn secondary sm" data-act="cloud-push">Subir ahora</button>' +
-      '<button class="btn ghost sm" data-act="cloud-pull">Bajar ahora</button>' +
-      '</div>' +
-      '<label class="check"><input type="checkbox" id="clAuto"' + (s.auto ? ' checked' : '') + '> Sincronización automática</label>' +
-      '<div class="btnrow"><button class="btn ghost sm" data-act="cloud-logout">Cerrar sesión</button></div>';
-  }
+  var h = '<div class="cloud-on"><span class="dot ' + (s.connected || s.ready ? 'ok' : (s.error ? 'err' : '')) + '"></span>' +
+    '<div><b>' + (s.connected || s.ready ? 'Sincronización interna activa' : 'Conectando a Firebase…') + '</b>' +
+    '<div class="s">' + esc(s.project || 'servictech-84304') + (s.lastSync ? ' · Sincronizado ' + fmtMs(s.lastSync) : '') + '</div></div></div>' +
+    '<p class="hint">Tus datos de empresas, tareas, repuestos e informes se respaldan y sincronizan automáticamente en segundo plano.</p>' +
+    '<div class="btnrow">' +
+    '<button class="btn secondary sm" data-act="cloud-sync">Sincronizar ahora</button>' +
+    '<button class="btn ghost sm" data-act="cloud-push">Subir a la nube</button>' +
+    '</div>';
   if (s.error) h += '<p class="hint err">' + esc(s.error) + '</p>';
   box.innerHTML = h;
 }
@@ -1210,6 +1351,15 @@ document.addEventListener('submit', function (e) {
   else if (kind === 'tar') saveTarea(f);
   else if (kind === 'rep') saveRepuesto(f);
   else if (kind === 'inf') saveInforme(f);
+  else if (kind === 'sel-inf-emp') {
+    var selEmp = $('select[name=empresa]', f);
+    var inpFecha = $('input[name=fecha]', f);
+    if (selEmp && selEmp.value) {
+      var url = '#/informe-form?empresa=' + encodeURIComponent(selEmp.value);
+      if (inpFecha && inpFecha.value) url += '&fecha=' + encodeURIComponent(inpFecha.value);
+      location.hash = url;
+    }
+  }
   else if (kind === 'seltar') {
     var sel = $('select[name=tarea]', f);
     if (sel && sel.value) location.hash = '#/informe-form?tarea=' + encodeURIComponent(sel.value);
@@ -1228,4 +1378,20 @@ document.addEventListener('submit', function (e) {
 Store.load();
 window.addEventListener('hashchange', route);
 route();
-if (window.Cloud && Cloud.configured()) { Cloud.init().catch(function () { }); }
+if (window.Cloud && Cloud.configured()) {
+  Cloud.onChange(updateCloudStatus);
+  Cloud.init().then(updateCloudStatus).catch(function () { updateCloudStatus(); });
+}
+document.addEventListener('click', function (e) {
+  var pill = e.target.closest('#cloudStatus');
+  if (pill && window.Cloud) {
+    var s = Cloud.status();
+    if (s.connected || s.ready) {
+      toast('Nube conectada · ' + (s.lastSync ? 'Sincronizado ' + fmtMs(s.lastSync) : 'Sincronizado'));
+      Cloud.syncNow();
+    } else {
+      toast('Conectando a Firebase en segundo plano…');
+      Cloud.init().then(function () { Cloud.syncNow(); });
+    }
+  }
+});

@@ -57,10 +57,26 @@ main { max-width: 660px; margin: 0 auto; padding: 14px 14px calc(116px + env(saf
 }
 .brand .mark svg { width: 20px; height: 20px; fill: #fff; stroke: none; }
 #topbar h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 #newSlot { display: flex; gap: 6px; flex: 0 0 auto; }
 #newSlot .btn.primary { background: #fff; color: var(--teal-dk); box-shadow: 0 3px 10px rgba(0, 0, 0, .18); border: none; }
 a.brand { text-decoration: none; color: inherit; }
 a.brand:hover { opacity: .88; }
+
+.cloud-pill {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255, 255, 255, .15);
+  border: 1px solid rgba(255, 255, 255, .25);
+  padding: 4px 8px; border-radius: 999px;
+  font-size: 11px; cursor: pointer; transition: background .15s;
+}
+.cloud-pill:hover { background: rgba(255, 255, 255, .25); }
+.cloud-dot { width: 7px; height: 7px; border-radius: 50%; background: #9AA5A1; }
+.cloud-dot.ok { background: #4ADE80; box-shadow: 0 0 6px rgba(74, 222, 128, .8); }
+.cloud-dot.syncing { background: #FBBF24; animation: pulse 1s infinite alternate; }
+.cloud-dot.err { background: #F87171; }
+.cloud-icon { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@keyframes pulse { 0% { opacity: .4; } 100% { opacity: 1; } }
 
 /* ---------- dock de navegación flotante ---------- */
 #tabbar {
@@ -431,3 +447,35 @@ body.cover main { padding: 0; }
 .check input { width: 18px; height: 18px; accent-color: var(--teal); }
 
 .hint.err { color: #C0392B; }
+
+/* ---------- bloques de jornada por fecha ---------- */
+.day-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.day-head {
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(135deg, #F8FAF9, #EDF4F2);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.day-title {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; font-size: 13.5px; color: var(--teal-dk);
+}
+.day-badge {
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  background: var(--teal-soft); color: var(--teal);
+  padding: 2px 7px; border-radius: 6px;
+}
+.day-actions { display: flex; align-items: center; gap: 6px; }
+.day-items { display: flex; flex-direction: column; }
+.day-items .card.row {
+  border: none; border-radius: 0; box-shadow: none;
+  border-bottom: 1px solid var(--line);
+}
+.day-items .card.row:last-child { border-bottom: none; }
