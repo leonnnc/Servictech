@@ -849,6 +849,79 @@ body.cover main { padding: 0; }
   transform: scale(1);
 }
 
+/* Filtros de fecha y cabeceras de día en Costos */
+.costos-period-pill {
+  font-size: 11.5px;
+  color: #A7F3D0;
+  font-weight: 600;
+  margin-top: 3px;
+  display: block;
+}
+
+.costos-date-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: #F1F5F4;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-top: 8px;
+}
+
+.costos-date-fld {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.costos-date-fld input[type="date"] {
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.day-head-costos {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #F8FBFA;
+  border-bottom: 1px solid var(--line);
+  border-top-left-radius: var(--r-md);
+  border-top-right-radius: var(--r-md);
+}
+
+.day-costos-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.day-costos-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--teal-dk);
+  background: var(--teal-soft);
+  padding: 3px 8px;
+  border-radius: 8px;
+}
+
+.btn-sel-day {
+  font-size: 11.5px;
+  padding: 3px 8px;
+}
+
 @media print {
   body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
   #topbar, #tabbar, #toast, .no-print { display: none !important; }

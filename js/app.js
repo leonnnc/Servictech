@@ -1601,22 +1601,204 @@ function vInforme(id) {
 }
 
 /* =========================================================
-   COSTOS (módulo de costos por tarea y total de seleccionadas)
+   COSTOS (módulo de costos por tarea, fechas y PDF WhatsApp)
    ========================================================= */
+
+function buildCostosPdfHtml(selTasks) {
+  var db = Store.db;
+  var currSym = db.meta.currency || 'S/ ';
+  var total = 0;
+  var dates = [];
+  var emps = new Set();
+
+  selTasks.forEach(function (t) {
+    var c = parseFloat(t.costo) || 0;
+    total += c;
+    var d = t.fecha_trabajo || t.fecha_creacion;
+    if (d) dates.push(d);
+    if (t.id_empresa) emps.add(empName(t.id_empresa));
+  });
+
+  dates.sort();
+  var periodo = 'Todas las fechas';
+  if (dates.length === 1) {
+    periodo = fmtDate(dates[0]);
+  } else if (dates.length > 1) {
+    periodo = fmtDate(dates[0]) + ' al ' + fmtDate(dates[dates.length - 1]);
+  }
+
+  var empTexto = 'Múltiples clientes / servicios';
+  if (emps.size === 1) {
+    empTexto = Array.from(emps)[0];
+  } else if (emps.size > 1) {
+    empTexto = Array.from(emps).join(', ');
+  }
+
+  var rowsHtml = '';
+  selTasks.forEach(function (t, idx) {
+    var cod = 'T-' + String(t.id).padStart(4, '0');
+    var emp = empName(t.id_empresa);
+    var equ = eqName(t.id_equipo);
+    var desc = t.descripcion_trabajo || '(Sin descripción)';
+    var fDate = fmtDate(t.fecha_trabajo || t.fecha_creacion);
+    var costo = parseFloat(t.costo) || 0;
+
+    rowsHtml += '<tr style="border-bottom: 1px solid #E2EBE8;">' +
+      '<td style="padding: 8px 6px; text-align: center; font-size: 11px; color: #526360;">' + (idx + 1) + '</td>' +
+      '<td style="padding: 8px; font-weight: 700; font-size: 11px; color: #0F766E;">' + cod + '</td>' +
+      '<td style="padding: 8px; font-size: 11px; color: #526360; white-space: nowrap;">' + esc(fDate) + '</td>' +
+      '<td style="padding: 8px; font-size: 11px; font-weight: 600;">' + esc(emp) + (equ ? '<br><small style="color:#7C8A86;">' + esc(equ) + '</small>' : '') + '</td>' +
+      '<td style="padding: 8px; font-size: 11px; color: #223330;">' + esc(desc) + '</td>' +
+      '<td style="padding: 8px; text-align: center; font-size: 11px;">' + badge(t.estado, EST_TAREA) + '</td>' +
+      '<td style="padding: 8px; text-align: right; font-weight: 700; font-size: 11.5px; color: #14201E;">' + money(costo) + '</td>' +
+      '</tr>';
+  });
+
+  var docNum = 'LC-' + Store.today().replace(/-/g, '') + '-' + String(selTasks.length).padStart(2, '0');
+
+  return '<div class="costos-pdf-doc" style="background:#fff; padding:24px; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color:#14201E; border:1px solid #E1EBE8; border-radius:16px;">' +
+    '<div class="rep-head" style="border-bottom: 2px solid #0F766E; padding-bottom: 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start;">' +
+      '<div>' +
+        '<div class="rep-brand" style="display:flex; align-items:center; gap:8px; font-weight:800; font-size:16px; color:#0F766E;">' +
+          '<svg viewBox="0 0 24 24" style="width:22px; height:22px; fill:#0F766E;"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>' +
+          'SERVITECH' +
+        '</div>' +
+        '<div class="rep-t" style="font-size:20px; font-weight:800; color:#0F766E; margin-top:4px;">LIQUIDACIÓN DE COSTOS DE SERVICIOS</div>' +
+        '<div class="rep-sub" style="font-size:12px; color:#526360;">Resumen valorizado de tareas y servicios técnicos realizados</div>' +
+      '</div>' +
+      '<div style="text-align:right;">' +
+        '<div style="display:inline-block; background:#E6F6F4; color:#0F766E; font-weight:800; font-size:12px; padding:4px 10px; border-radius:8px; border:1px solid rgba(15, 118, 110, .2);">' + docNum + '</div>' +
+        '<div style="font-size:11.5px; color:#526360; margin-top:6px;">Emisión: <b>' + fmtDate(Store.today()) + '</b></div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="rep-meta-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; margin-bottom:18px;">' +
+      '<div style="background:#F8FBFA; border:1px solid #E1EBE8; border-radius:10px; padding:10px;">' +
+        '<div style="font-size:10px; font-weight:750; text-transform:uppercase; color:#60726E; margin-bottom:3px;">Cliente / Empresa</div>' +
+        '<div style="font-size:12px; font-weight:700; color:#182624;">' + esc(empTexto) + '</div>' +
+      '</div>' +
+      '<div style="background:#F8FBFA; border:1px solid #E1EBE8; border-radius:10px; padding:10px;">' +
+        '<div style="font-size:10px; font-weight:750; text-transform:uppercase; color:#60726E; margin-bottom:3px;">Técnico Responsable</div>' +
+        '<div style="font-size:12px; font-weight:700; color:#182624;">' + esc(db.meta.tecnico || 'Servitech') + '</div>' +
+      '</div>' +
+      '<div style="background:#F8FBFA; border:1px solid #E1EBE8; border-radius:10px; padding:10px;">' +
+        '<div style="font-size:10px; font-weight:750; text-transform:uppercase; color:#60726E; margin-bottom:3px;">Período Liquidado</div>' +
+        '<div style="font-size:12px; font-weight:700; color:#182624;">' + esc(periodo) + '</div>' +
+      '</div>' +
+      '<div style="background:#F8FBFA; border:1px solid #E1EBE8; border-radius:10px; padding:10px;">' +
+        '<div style="font-size:10px; font-weight:750; text-transform:uppercase; color:#60726E; margin-bottom:3px;">Tareas Incluidas</div>' +
+        '<div style="font-size:12px; font-weight:700; color:#182624;">' + selTasks.length + ' servicios</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<table style="width:100%; border-collapse:collapse; margin-bottom:18px; font-size:12px;">' +
+      '<thead>' +
+        '<tr style="background:#F1F5F4; border-bottom:2px solid #D5E2DF;">' +
+          '<th style="padding:8px 6px; text-align:center; font-size:11px; font-weight:750; color:#475754;">#</th>' +
+          '<th style="padding:8px; text-align:left; font-size:11px; font-weight:750; color:#475754;">Código</th>' +
+          '<th style="padding:8px; text-align:left; font-size:11px; font-weight:750; color:#475754;">Fecha</th>' +
+          '<th style="padding:8px; text-align:left; font-size:11px; font-weight:750; color:#475754;">Cliente / Equipo</th>' +
+          '<th style="padding:8px; text-align:left; font-size:11px; font-weight:750; color:#475754;">Descripción del Servicio</th>' +
+          '<th style="padding:8px; text-align:center; font-size:11px; font-weight:750; color:#475754;">Estado</th>' +
+          '<th style="padding:8px; text-align:right; font-size:11px; font-weight:750; color:#475754;">Costo (' + currSym.trim() + ')</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + rowsHtml + '</tbody>' +
+      '<tfoot>' +
+        '<tr style="background:#E6F6F4; border-top:2px solid #0F766E;">' +
+          '<td colspan="6" style="padding:12px 10px; text-align:right; font-weight:800; font-size:13.5px; color:#0F766E;">TOTAL GENERAL A LIQUIDAR / COBRAR:</td>' +
+          '<td style="padding:12px 10px; text-align:right; font-weight:800; font-size:16px; color:#0F766E;">' + money(total) + '</td>' +
+        '</tr>' +
+      '</tfoot>' +
+    '</table>' +
+
+    '<div style="display:flex; justify-content:space-between; gap:20px; margin-top:26px;">' +
+      '<div style="flex:1; text-align:center; border:1px dashed #B8C9C5; border-radius:10px; padding:12px;">' +
+        '<div style="height:48px;"></div>' +
+        '<div style="border-top:1px solid #7C8A86; padding-top:6px; font-weight:700; font-size:11.5px; color:#14201E;">' + esc(db.meta.tecnico || 'Técnico Especialista') + '</div>' +
+        '<div style="font-size:10.5px; color:#60726E;">Firma del Técnico Responsable</div>' +
+      '</div>' +
+      '<div style="flex:1; text-align:center; border:1px dashed #B8C9C5; border-radius:10px; padding:12px;">' +
+        '<div style="height:48px;"></div>' +
+        '<div style="border-top:1px solid #7C8A86; padding-top:6px; font-weight:700; font-size:11.5px; color:#14201E;">Conformidad del Cliente</div>' +
+        '<div style="font-size:10.5px; color:#60726E;">Firma / Sello de Recepción</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div style="margin-top:18px; font-size:10px; text-align:center; color:#7C8A86;">' +
+      'Servitech · Documento oficial de liquidación y cobro de servicios técnicos.' +
+    '</div>' +
+  '</div>';
+}
+
+function generateCostosPdf(selTasks, callback) {
+  var area = document.getElementById('printCostosArea');
+  if (!area) {
+    area = document.createElement('div');
+    area.id = 'printCostosArea';
+    area.style.position = 'absolute';
+    area.style.left = '-9999px';
+    area.style.top = '0';
+    area.style.width = '794px';
+    area.style.background = '#ffffff';
+    document.body.appendChild(area);
+  }
+
+  area.innerHTML = buildCostosPdfHtml(selTasks);
+
+  var jspdfLib = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
+  if (!window.html2canvas || !jspdfLib) {
+    if (typeof callback === 'function') callback(new Error('Librerías PDF no disponibles'));
+    return;
+  }
+
+  window.html2canvas(area, {
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    backgroundColor: '#ffffff'
+  }).then(function (canvas) {
+    try {
+      var imgData = canvas.toDataURL('image/jpeg', 0.95);
+      var pdf = new jspdfLib('p', 'mm', 'a4');
+      var pdfWidth = pdf.internal.pageSize.getWidth();
+      var pdfHeight = pdf.internal.pageSize.getHeight();
+
+      var imgWidth = pdfWidth - 20; // 10mm márgenes
+      var imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      var xPos = 10;
+      var yPos = 10;
+      var heightLeft = imgHeight;
+      var position = 10;
+
+      pdf.addImage(imgData, 'JPEG', xPos, position, imgWidth, imgHeight);
+      heightLeft -= (pdfHeight - 20);
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + 10;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', xPos, position, imgWidth, imgHeight);
+        heightLeft -= (pdfHeight - 20);
+      }
+
+      if (typeof callback === 'function') callback(null, pdf);
+    } catch (err) {
+      console.error('Error generando documento PDF de costos:', err);
+      if (typeof callback === 'function') callback(err);
+    }
+  }).catch(function (err) {
+    console.error('Error html2canvas costos:', err);
+    if (typeof callback === 'function') callback(err);
+  });
+}
+
 function vCostos(qs) {
   setTitle('Costos');
   setNew('<a class="btn primary sm" href="#/tarea-form">+ Nueva tarea</a>');
 
   var db = Store.db;
   var tareas = (db.tareas || []).slice();
-
-  // Ordenar tareas por fecha desc, luego por id desc
-  tareas.sort(function (a, b) {
-    var da = a.fecha_trabajo || a.fecha_creacion || '';
-    var db = b.fecha_trabajo || b.fecha_creacion || '';
-    if (da !== db) return db.localeCompare(da);
-    return Number(b.id || 0) - Number(a.id || 0);
-  });
 
   if (!tareas.length) {
     $('#view').innerHTML = '<div class="stack">' +
@@ -1629,133 +1811,303 @@ function vCostos(qs) {
     return;
   }
 
+  // Agrupación por fechas
+  var groups = {};
+  tareas.forEach(function (t) {
+    var f = t.fecha_trabajo || t.fecha_creacion || Store.today();
+    if (!groups[f]) groups[f] = [];
+    groups[f].push(t);
+  });
+
+  var sortedDates = Object.keys(groups).sort(function (a, b) { return b.localeCompare(a); });
+
+  // Map de selección: todos seleccionados por defecto
+  var selectedMap = {};
+  tareas.forEach(function (t) { selectedMap[String(t.id)] = true; });
+
   var curEst = qs.get('est') || '';
   var curQ = (qs.get('q') || '').trim().toLowerCase();
-
-  // Chips de filtro por estado
-  var chips = '<div class="chips">';
-  chips += '<a class="chip' + (!curEst ? ' on' : '') + '" href="#/costos">Todas (' + tareas.length + ')</a>';
-  ESTADOS_TAREA_LIST.forEach(function (s) {
-    var count = tareas.filter(function (t) { return t.estado === s; }).length;
-    if (count > 0) {
-      chips += '<a class="chip' + (curEst === s ? ' on' : '') + '" href="#/costos?est=' + encodeURIComponent(s) + '">' + esc(s) + ' (' + count + ')</a>';
-    }
-  });
-  chips += '</div>';
+  var curD = qs.get('d') || 'todas';
+  var curDesde = qs.get('desde') || '';
+  var curHasta = qs.get('hasta') || '';
 
   var currSym = db.meta.currency || 'S/ ';
 
+  // Generar HTML de filtros de fecha y estado
+  var dateChips = '<div class="chips" id="costosDateChips">' +
+    '<a class="chip' + (curD === 'todas' ? ' on' : '') + '" data-d="todas">Todas las fechas</a>' +
+    '<a class="chip' + (curD === 'hoy' ? ' on' : '') + '" data-d="hoy">Hoy</a>' +
+    '<a class="chip' + (curD === 'semana' ? ' on' : '') + '" data-d="semana">Últimos 7 días</a>' +
+    '<a class="chip' + (curD === 'mes' ? ' on' : '') + '" data-d="mes">Este mes</a>' +
+    '<a class="chip' + (curD === 'rango' ? ' on' : '') + '" data-d="rango">📅 Por rango…</a>' +
+    '</div>';
+
+  var estChips = '<div class="chips" style="margin-top:4px;">';
+  estChips += '<a class="chip' + (!curEst ? ' on' : '') + '" data-est="">Todos los estados (' + tareas.length + ')</a>';
+  ESTADOS_TAREA_LIST.forEach(function (s) {
+    var count = tareas.filter(function (t) { return t.estado === s; }).length;
+    if (count > 0) {
+      estChips += '<a class="chip' + (curEst === s ? ' on' : '') + '" data-est="' + esc(s) + '">' + esc(s) + ' (' + count + ')</a>';
+    }
+  });
+  estChips += '</div>';
+
   var html = '<div class="stack costos-wrap">' +
-    '<!-- Resumen de Costos Total Sticky -->' +
+    '<!-- Tarjeta Resumen y Acciones -->' +
     '<div class="card pad costos-summary-card">' +
       '<div class="costos-summary-head">' +
         '<div>' +
           '<div class="costos-badge-label">TOTAL SELECCIONADO</div>' +
           '<div class="costos-total-val" id="costosTotalSel">' + currSym + '0.00</div>' +
+          '<div class="costos-period-pill" id="costosPeriodoSel">Todas las fechas</div>' +
         '</div>' +
         '<div style="text-align:right;">' +
           '<div class="costos-sel-pill" id="costosCountSel">0 tareas</div>' +
-          '<div class="costos-total-all" id="costosTotalAll">Total global: ' + currSym + '0.00</div>' +
+          '<div class="costos-total-all" id="costosTotalAll">Total tareas visibles: ' + currSym + '0.00</div>' +
         '</div>' +
       '</div>' +
       '<div class="costos-actions-row">' +
-        '<button type="button" class="btn secondary sm" id="btnCostosAll">✓ Seleccionar todas</button>' +
-        '<button type="button" class="btn ghost sm" id="btnCostosNone">✕ Deseleccionar</button>' +
-        '<button type="button" class="btn primary sm" id="btnCostosWa" title="Enviar resumen por WhatsApp">📱 Enviar por WhatsApp</button>' +
+        '<button type="button" class="btn primary sm" id="btnCostosWaPdf">📱 Enviar por WhatsApp (PDF)</button>' +
+        '<button type="button" class="btn secondary sm" id="btnCostosDlPdf">📥 Descargar PDF</button>' +
+        '<button type="button" class="btn ghost sm" id="btnCostosAll">✓ Todas</button>' +
+        '<button type="button" class="btn ghost sm" id="btnCostosNone">✕ Ninguna</button>' +
       '</div>' +
     '</div>' +
 
-    chips +
+    '<!-- Filtros de Fecha y Estado -->' +
+    '<div class="card pad" style="padding: 12px 14px; margin-bottom: 4px;">' +
+      '<div style="font-size: 11px; font-weight: 750; text-transform: uppercase; color: var(--ink2); margin-bottom: 6px;">Filtrar por Fechas:</div>' +
+      dateChips +
+      '<div class="costos-date-bar" id="costosDateBar" style="' + (curD === 'rango' ? '' : 'display:none;') + '">' +
+        '<label class="costos-date-fld"><span>Desde:</span><input type="date" id="costosDesde" value="' + esc(curDesde) + '"></label>' +
+        '<label class="costos-date-fld"><span>Hasta:</span><input type="date" id="costosHasta" value="' + esc(curHasta) + '"></label>' +
+        '<button type="button" class="btn secondary sm" id="btnApplyDates">Aplicar</button>' +
+        '<button type="button" class="btn ghost sm" id="btnClearDates">Limpiar</button>' +
+      '</div>' +
+      '<div style="font-size: 11px; font-weight: 750; text-transform: uppercase; color: var(--ink2); margin-top: 10px; margin-bottom: 6px;">Filtrar por Estado:</div>' +
+      estChips +
+    '</div>' +
 
-    '<!-- Barra de búsqueda -->' +
+    '<!-- Buscador -->' +
     '<div class="search">' +
       '<input id="busCostos" placeholder="Buscar por tarea, empresa o equipo…" value="' + esc(curQ) + '">' +
     '</div>' +
 
-    '<!-- Lista de Tareas con Costos -->' +
+    '<!-- Listado agrupado por Fechas -->' +
     '<div id="costosList" class="costos-list">';
 
-  tareas.forEach(function (t) {
-    var cod = 'T-' + String(t.id).padStart(4, '0');
-    var emp = empName(t.id_empresa);
-    var equ = eqName(t.id_equipo);
-    var desc = t.descripcion_trabajo || '(Sin descripción)';
-    var fDate = fmtDate(t.fecha_trabajo || t.fecha_creacion);
-    var searchStr = (cod + ' ' + emp + ' ' + equ + ' ' + desc + ' ' + (t.estado || '')).toLowerCase();
-    var valCosto = (t.costo != null && t.costo !== '') ? t.costo : '';
+  sortedDates.forEach(function (f) {
+    var dayTasks = groups[f];
+    var daySub = 0;
+    dayTasks.forEach(function (t) { daySub += (parseFloat(t.costo) || 0); });
 
-    html += '<div class="card pad costos-item is-selected" data-id="' + esc(t.id) + '" data-search="' + esc(searchStr) + '" data-est="' + esc(t.estado || '') + '">' +
-      '<div class="costos-item-top">' +
-        '<label class="costos-check-wrap">' +
-          '<input type="checkbox" class="costos-check" data-id="' + esc(t.id) + '" checked>' +
-          '<span class="costos-code-pill">' + cod + '</span>' +
-        '</label>' +
-        '<div class="costos-meta-top">' +
-          '<span class="costos-date">📅 ' + esc(fDate) + '</span>' +
-          badge(t.estado, EST_TAREA) +
+    html += '<div class="day-card costos-day-group" data-date="' + esc(f) + '">' +
+      '<div class="day-head day-head-costos">' +
+        '<div class="day-title">' +
+          '<span>📅 ' + esc(dayLabel(f)) + '</span>' +
+          '<span class="day-badge">' + pl(dayTasks.length, 'tarea', 'tareas') + '</span>' +
+        '</div>' +
+        '<div class="day-costos-right">' +
+          '<span class="day-costos-sub" id="daySub-' + esc(f) + '">Subtotal día: <b>' + money(daySub) + '</b></span>' +
+          '<button type="button" class="btn ghost sm btn-sel-day" data-date="' + esc(f) + '" title="Marcar/Desmarcar día">✓ Marcar día</button>' +
         '</div>' +
       '</div>' +
-      '<div class="costos-item-body">' +
-        '<div class="costos-desc"><a href="#/tarea/' + esc(t.id) + '" class="costos-link">' + esc(desc) + '</a></div>' +
-        '<div class="costos-sub">' + esc(emp) + (equ ? ' · ' + esc(equ) : '') + '</div>' +
-      '</div>' +
-      '<div class="costos-item-foot">' +
-        '<label class="costos-input-label">' +
-          '<span class="costos-lbl-text">Costo tarea:</span>' +
-          '<div class="costos-input-wrap">' +
-            '<span class="costos-curr-sym">' + esc(currSym) + '</span>' +
-            '<input type="number" step="0.01" min="0" class="costos-input" data-id="' + esc(t.id) + '" value="' + esc(valCosto) + '" placeholder="0.00">' +
-            '<span class="costos-save-check" id="chk-' + esc(t.id) + '">✓</span>' +
+      '<div class="day-items" style="padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;">';
+
+    dayTasks.forEach(function (t) {
+      var cod = 'T-' + String(t.id).padStart(4, '0');
+      var emp = empName(t.id_empresa);
+      var equ = eqName(t.id_equipo);
+      var desc = t.descripcion_trabajo || '(Sin descripción)';
+      var searchStr = (cod + ' ' + emp + ' ' + equ + ' ' + desc + ' ' + (t.estado || '')).toLowerCase();
+      var valCosto = (t.costo != null && t.costo !== '') ? t.costo : '';
+
+      html += '<div class="card pad costos-item is-selected" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" data-search="' + esc(searchStr) + '" data-est="' + esc(t.estado || '') + '">' +
+        '<div class="costos-item-top">' +
+          '<label class="costos-check-wrap">' +
+            '<input type="checkbox" class="costos-check" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" checked>' +
+            '<span class="costos-code-pill">' + cod + '</span>' +
+          '</label>' +
+          '<div class="costos-meta-top">' +
+            badge(t.estado, EST_TAREA) +
           '</div>' +
-        '</label>' +
-      '</div>' +
-    '</div>';
+        '</div>' +
+        '<div class="costos-item-body">' +
+          '<div class="costos-desc"><a href="#/tarea/' + esc(t.id) + '" class="costos-link">' + esc(desc) + '</a></div>' +
+          '<div class="costos-sub">' + esc(emp) + (equ ? ' · ' + esc(equ) : '') + '</div>' +
+        '</div>' +
+        '<div class="costos-item-foot">' +
+          '<label class="costos-input-label">' +
+            '<span class="costos-lbl-text">Costo de tarea:</span>' +
+            '<div class="costos-input-wrap">' +
+              '<span class="costos-curr-sym">' + esc(currSym) + '</span>' +
+              '<input type="number" step="0.01" min="0" class="costos-input" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" value="' + esc(valCosto) + '" placeholder="0.00">' +
+              '<span class="costos-save-check" id="chk-' + esc(t.id) + '">✓</span>' +
+            '</div>' +
+          '</label>' +
+        '</div>' +
+      '</div>';
+    });
+
+    html += '</div></div>';
   });
 
   html += '</div></div>';
   $('#view').innerHTML = html;
 
-  // Manejo reactivo de costos y selección
-  var selectedMap = {};
-  tareas.forEach(function (t) { selectedMap[String(t.id)] = true; });
-
+  // Lógica de cálculo reactivo
   function recalc() {
     var sumSel = 0;
-    var sumAll = 0;
+    var sumVis = 0;
     var countSel = 0;
+    var selDates = [];
+
+    // Recalcular subtotales por día
+    sortedDates.forEach(function (f) {
+      var dSub = 0;
+      groups[f].forEach(function (t) {
+        dSub += (parseFloat(t.costo) || 0);
+      });
+      var subEl = $('#daySub-' + f);
+      if (subEl) subEl.innerHTML = 'Subtotal día: <b>' + money(dSub) + '</b>';
+    });
+
     tareas.forEach(function (t) {
       var idStr = String(t.id);
       var cost = parseFloat(t.costo) || 0;
-      sumAll += cost;
+      var card = $('.costos-item[data-id="' + idStr + '"]');
+      var isVis = card && card.style.display !== 'none';
+      if (isVis) sumVis += cost;
+
       if (selectedMap[idStr]) {
         sumSel += cost;
         countSel++;
+        var d = t.fecha_trabajo || t.fecha_creacion;
+        if (d) selDates.push(d);
       }
     });
 
     var elSel = $('#costosTotalSel');
     var elCount = $('#costosCountSel');
     var elAll = $('#costosTotalAll');
+    var elPeriodo = $('#costosPeriodoSel');
+
     if (elSel) elSel.textContent = money(sumSel);
     if (elCount) elCount.textContent = countSel + ' de ' + tareas.length + ' selecc.';
-    if (elAll) elAll.textContent = 'Total global: ' + money(sumAll);
+    if (elAll) elAll.textContent = 'Total tareas visibles: ' + money(sumVis);
+
+    if (elPeriodo) {
+      selDates.sort();
+      if (!selDates.length) {
+        elPeriodo.textContent = 'Ninguna tarea seleccionada';
+      } else if (selDates.length === 1 || selDates[0] === selDates[selDates.length - 1]) {
+        elPeriodo.textContent = 'Fecha: ' + fmtDate(selDates[0]);
+      } else {
+        elPeriodo.textContent = 'Período: ' + fmtDate(selDates[0]) + ' al ' + fmtDate(selDates[selDates.length - 1]);
+      }
+    }
   }
 
-  // Filtrado dinámico en pantalla
+  // Filtrado compuesto: Búsqueda, Estado y Fechas
   var busInp = $('#busCostos');
+  var dDesdeInp = $('#costosDesde');
+  var dHastaInp = $('#costosHasta');
+
   function filterItems() {
     var q = (busInp ? busInp.value : '').toLowerCase().trim();
-    $$('#costosList .costos-item').forEach(function (item) {
-      var s = item.dataset.search || '';
-      var est = item.dataset.est || '';
-      var matchQ = !q || s.indexOf(q) >= 0;
-      var matchEst = !curEst || est === curEst;
-      item.style.display = (matchQ && matchEst) ? '' : 'none';
+    var desde = dDesdeInp ? dDesdeInp.value : '';
+    var hasta = dHastaInp ? dHastaInp.value : '';
+
+    sortedDates.forEach(function (f) {
+      var dayMatchDate = true;
+      if (curD === 'hoy') {
+        dayMatchDate = (f === Store.today());
+      } else if (curD === 'semana') {
+        var d7 = new Date(); d7.setDate(d7.getDate() - 7);
+        var d7Iso = d7.toISOString().slice(0, 10);
+        dayMatchDate = (f >= d7Iso && f <= Store.today());
+      } else if (curD === 'mes') {
+        var dMes = Store.today().slice(0, 7) + '-01';
+        dayMatchDate = (f >= dMes);
+      } else if (curD === 'rango') {
+        if (desde && f < desde) dayMatchDate = false;
+        if (hasta && f > hasta) dayMatchDate = false;
+      }
+
+      var dayVisibleCards = 0;
+      $$('.costos-item[data-date="' + f + '"]').forEach(function (item) {
+        var s = item.dataset.search || '';
+        var est = item.dataset.est || '';
+        var matchQ = !q || s.indexOf(q) >= 0;
+        var matchEst = !curEst || est === curEst;
+        var vis = dayMatchDate && matchQ && matchEst;
+        item.style.display = vis ? '' : 'none';
+        if (vis) dayVisibleCards++;
+      });
+
+      var dayGroup = $('.costos-day-group[data-date="' + f + '"]');
+      if (dayGroup) {
+        dayGroup.style.display = (dayVisibleCards > 0) ? '' : 'none';
+      }
     });
+
+    recalc();
   }
 
   if (busInp) busInp.addEventListener('input', filterItems);
-  filterItems();
+
+  // Chips de fecha
+  $$('#costosDateChips .chip').forEach(function (chip) {
+    chip.addEventListener('click', function (e) {
+      e.preventDefault();
+      $$('#costosDateChips .chip').forEach(function (c) { c.classList.remove('on'); });
+      chip.classList.add('on');
+      curD = chip.dataset.d;
+      var dateBar = $('#costosDateBar');
+      if (dateBar) dateBar.style.display = (curD === 'rango') ? 'flex' : 'none';
+
+      if (curD === 'hoy') {
+        if (dDesdeInp) dDesdeInp.value = Store.today();
+        if (dHastaInp) dHastaInp.value = Store.today();
+      } else if (curD === 'todas') {
+        if (dDesdeInp) dDesdeInp.value = '';
+        if (dHastaInp) dHastaInp.value = '';
+      }
+      filterItems();
+    });
+  });
+
+  // Botón Aplicar rango
+  var bApplyDates = $('#btnApplyDates');
+  if (bApplyDates) bApplyDates.addEventListener('click', function () {
+    curD = 'rango';
+    filterItems();
+  });
+
+  // Botón Limpiar fechas
+  var bClearDates = $('#btnClearDates');
+  if (bClearDates) bClearDates.addEventListener('click', function () {
+    if (dDesdeInp) dDesdeInp.value = '';
+    if (dHastaInp) dHastaInp.value = '';
+    curD = 'todas';
+    $$('#costosDateChips .chip').forEach(function (c) { c.classList.toggle('on', c.dataset.d === 'todas'); });
+    var dateBar = $('#costosDateBar');
+    if (dateBar) dateBar.style.display = 'none';
+    filterItems();
+  });
+
+  // Chips de estado
+  $$('[data-est]').forEach(function (chip) {
+    if (chip.classList.contains('costos-item')) return;
+    chip.addEventListener('click', function (e) {
+      e.preventDefault();
+      curEst = chip.dataset.est;
+      $$('[data-est]').forEach(function (c) {
+        if (!c.classList.contains('costos-item')) c.classList.toggle('on', c.dataset.est === curEst);
+      });
+      filterItems();
+    });
+  });
 
   // Checkbox individual
   $$('#costosList .costos-check').forEach(function (chk) {
@@ -1768,7 +2120,25 @@ function vCostos(qs) {
     });
   });
 
-  // Botón Seleccionar todas
+  // Botón de Seleccionar / Deseleccionar día completo
+  $$('.btn-sel-day').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var f = btn.dataset.date;
+      var chks = $$('.costos-item[data-date="' + f + '"] .costos-check');
+      var allChecked = true;
+      chks.forEach(function (c) { if (!c.checked) allChecked = false; });
+      var targetState = !allChecked;
+      chks.forEach(function (c) {
+        c.checked = targetState;
+        selectedMap[c.dataset.id] = targetState;
+        var card = c.closest('.costos-item');
+        if (card) card.classList.toggle('is-selected', targetState);
+      });
+      recalc();
+    });
+  });
+
+  // Botón Seleccionar todas las visibles
   var bAll = $('#btnCostosAll');
   if (bAll) bAll.addEventListener('click', function () {
     $$('#costosList .costos-check').forEach(function (chk) {
@@ -1796,7 +2166,7 @@ function vCostos(qs) {
     recalc();
   });
 
-  // Entrada de Costo por tarea (auto-guardado reactivo)
+  // Edición directa de costo por tarea
   $$('#costosList .costos-input').forEach(function (inp) {
     var id = inp.dataset.id;
     var taskObj = tareas.find(function (t) { return String(t.id) === String(id); });
@@ -1819,37 +2189,84 @@ function vCostos(qs) {
     inp.addEventListener('change', onCostChange);
   });
 
-  // Botón Enviar por WhatsApp
-  var bWa = $('#btnCostosWa');
-  if (bWa) bWa.addEventListener('click', function () {
+  // Botón Enviar por WhatsApp (PDF)
+  var bWaPdf = $('#btnCostosWaPdf');
+  if (bWaPdf) bWaPdf.addEventListener('click', function () {
     var selTasks = tareas.filter(function (t) { return selectedMap[String(t.id)]; });
     if (!selTasks.length) {
       toast('Selecciona al menos una tarea');
       return;
     }
-    var total = 0;
-    var lines = ['📋 *RESUMEN DE COSTOS - SERVICIOS TÉCNICOS*'];
-    lines.push('Fecha: ' + fmtDate(Store.today()));
-    lines.push('----------------------------------------');
-    selTasks.forEach(function (t) {
-      var c = parseFloat(t.costo) || 0;
-      total += c;
-      var cod = 'T-' + String(t.id).padStart(4, '0');
-      var emp = empName(t.id_empresa);
-      var desc = t.descripcion_trabajo || '(Sin descripción)';
-      lines.push('• *' + cod + '* (' + emp + '): ' + desc);
-      lines.push('  ↳ Costo: *' + money(c) + '*');
-    });
-    lines.push('----------------------------------------');
-    lines.push('*TOTAL (' + selTasks.length + ' tareas): ' + money(total) + '*');
-    if (db.meta.tecnico) lines.push('Técnico: ' + db.meta.tecnico);
 
-    var text = encodeURIComponent(lines.join('\n'));
-    var url = 'https://api.whatsapp.com/send?text=' + text;
-    window.open(url, '_blank');
+    toast('Generando PDF para WhatsApp…');
+    generateCostosPdf(selTasks, function (err, pdfDoc) {
+      if (err || !pdfDoc) {
+        toast('Error al generar PDF. Intenta nuevamente.');
+        return;
+      }
+
+      var total = 0;
+      selTasks.forEach(function (t) { total += (parseFloat(t.costo) || 0); });
+      var filename = 'Liquidacion_Costos_' + Store.today() + '.pdf';
+      var textMsg = 'Hola, adjunto la Liquidación de Costos de Servicios en PDF con ' + selTasks.length + ' tareas por un total de ' + money(total) + '.';
+      var waUrl = 'https://wa.me/?text=' + encodeURIComponent(textMsg);
+
+      try {
+        var blob = pdfDoc.output('blob');
+        var file = new File([blob], filename, { type: 'application/pdf' });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({
+            title: 'Liquidación de Costos Servitech',
+            text: textMsg,
+            files: [file]
+          }).then(function () {
+            toast('Liquidación en PDF compartida por WhatsApp');
+          }).catch(function (e) {
+            if (e && e.name !== 'AbortError') {
+              pdfDoc.save(filename);
+              window.open(waUrl, '_blank');
+              toast('PDF descargado. Adjúntalo en el chat de WhatsApp que se abrirá.');
+            }
+          });
+          return;
+        }
+
+        pdfDoc.save(filename);
+        setTimeout(function () {
+          window.open(waUrl, '_blank');
+          toast('PDF descargado. Adjúntalo en el chat de WhatsApp que se abrirá.');
+        }, 300);
+      } catch (e2) {
+        pdfDoc.save(filename);
+        window.open(waUrl, '_blank');
+        toast('PDF descargado. Adjúntalo en el chat de WhatsApp que se abrirá.');
+      }
+    });
   });
 
-  recalc();
+  // Botón Descargar PDF directo
+  var bDlPdf = $('#btnCostosDlPdf');
+  if (bDlPdf) bDlPdf.addEventListener('click', function () {
+    var selTasks = tareas.filter(function (t) { return selectedMap[String(t.id)]; });
+    if (!selTasks.length) {
+      toast('Selecciona al menos una tarea');
+      return;
+    }
+
+    toast('Generando PDF de costos…');
+    generateCostosPdf(selTasks, function (err, pdfDoc) {
+      if (err || !pdfDoc) {
+        toast('Error al generar PDF.');
+        return;
+      }
+      var filename = 'Liquidacion_Costos_' + Store.today() + '.pdf';
+      pdfDoc.save(filename);
+      toast('PDF de costos descargado con éxito');
+    });
+  });
+
+  filterItems();
 }
 
 /* =========================================================
