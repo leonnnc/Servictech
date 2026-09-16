@@ -343,10 +343,11 @@ function vEmpresa(id) {
 
   html += '<h2 class="sec">Equipos (' + eqs.length + ')</h2>';
   eqs.forEach(function (q) {
+    var fReg = q.fecha_registro ? fmtDate(q.fecha_registro) : '';
     html += '<div class="card row">' +
       '<div class="row-main">' +
       '<div class="t">' + esc(eqLabel(q)) + '</div>' +
-      '<div class="s">Serie ' + esc(q.nro_serie || '—') + (q.ubicacion ? ' · ' + esc(q.ubicacion) : '') + '</div>' +
+      '<div class="s">Serie ' + esc(q.nro_serie || '—') + (q.ubicacion ? ' · ' + esc(q.ubicacion) : '') + (fReg ? ' · Reg: ' + esc(fReg) : '') + '</div>' +
       '</div>' +
       '<div class="row-meta"><a class="btn ghost sm" href="#/equipo-form?empresa=' + esc(e.id) + '&edit=' + esc(q.id) + '">Editar</a>' +
       '<button class="btn danger sm" data-act="del-equipo" data-id="' + esc(q.id) + '">Quitar</button></div></div>';
@@ -480,10 +481,7 @@ function vEquipoForm(qs) {
     field('N° de serie', 'nro_serie', v('nro_serie')) +
     '</div>' +
     field('Ubicación (piso, oficina…)', 'ubicacion', v('ubicacion')) +
-    '<div class="row2">' +
-    field('Fecha de instalación', 'fecha_instalacion', v('fecha_instalacion'), 'date') +
-    field('Garantía hasta', 'garantia_hasta', v('garantia_hasta'), 'date') +
-    '</div>' +
+    field('Fecha de registro', 'fecha_registro', v('fecha_registro') || Store.today(), 'date', '', true) +
     fieldArea('Notas del equipo', 'notas_equipo', v('notas_equipo')) +
     '<button class="btn primary block" type="submit">Guardar equipo</button>' +
     '</form></div>';
@@ -501,6 +499,7 @@ function saveEquipo(form) {
   d.id_empresa = d.id_empresa_sel || d.id_empresa;
   delete d.id_empresa_sel;
   if (!d.id_empresa) { toast('Elige la empresa'); return; }
+  d.fecha_registro = d.fecha_registro || Store.today();
   var id = form.dataset.id;
   if (id) { Store.upd('equipos', id, d); toast('Equipo actualizado'); }
   else { var row = Store.add('equipos', d); id = row.id; toast('Equipo registrado'); }
