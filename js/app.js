@@ -893,34 +893,104 @@ function initPad(id) {
   if (!cv) return null;
   var drawing = false;
   cv._drawn = false;
-  var ctx;
-  function resize() {
-    var w = cv.clientWidth || 600;
-    cv.width = w; cv.height = 150;
-    ctx = cv.getContext('2d');
-    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.strokeStyle = '#1F2430'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  }
-  resize();
-  function pos(ev) {
+  var ctx = cv.getContext('2d');
+
+  function getPoint(ev) {
     var r = cv.getBoundingClientRect();
-    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+    var clientX = ev.clientX;
+    var clientY = ev.clientY;
+    if (ev.touches && ev.touches.length > 0) {
+      clientX = ev.touches[0].clientX;
+      clientY = ev.touches[0].clientY;
+    } else if (ev.changedTouches && ev.changedTouches.length > 0) {
+      clientX = ev.changedTouches[0].clientX;
+      clientY = ev.changedTouches[0].clientY;
+    }
+    // Escalar al tamaño interno del canvas
+    var scaleX = cv.width / (r.width || 1);
+    var scaleY = cv.height / (r.height || 1);
+    return {
+      x: (clientX - r.left) * scaleX,
+      y: (clientY - r.top) * scaleY
+    };
   }
-  cv.addEventListener('pointerdown', function (ev) {
-    ev.preventDefault(); drawing = true; cv._drawn = true;
-    cv.setPointerCapture(ev.pointerId);
-    var p = pos(ev); ctx.beginPath(); ctx.moveTo(p.x, p.y);
-  });
-  cv.addEventListener('pointermove', function (ev) {
+
+  function setupCanvas() {
+    var rect = cv.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.round(rect.width || cv.clientWidth || 400);
+    var h = Math.round(rect.height || cv.clientHeight || 150);
+
+    cv.width = w * dpr;
+    cv.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }
+
+  setupCanvas();
+
+  function onStart(ev) {
+    if (ev.cancelable) ev.preventDefault();
+    drawing = true;
+    cv._drawn = true;
+    try {
+      if (ev.pointerId !== undefined && cv.setPointerCapture) {
+        cv.setPointerCapture(ev.pointerId);
+      }
+    } catch (e) {}
+    var p = getPoint(ev);
+    // Ajustar por dpr inverso porque ctx.scale ya está aplicado
+    var dpr = window.devicePixelRatio || 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x / dpr, p.y / dpr);
+  }
+
+  function onMove(ev) {
     if (!drawing) return;
-    var p = pos(ev); ctx.lineTo(p.x, p.y); ctx.stroke();
-  });
-  ['pointerup', 'pointercancel'].forEach(function (evt) {
-    cv.addEventListener(evt, function () { drawing = false; });
-  });
+    if (ev.cancelable) ev.preventDefault();
+    var p = getPoint(ev);
+    var dpr = window.devicePixelRatio || 1;
+    ctx.lineTo(p.x / dpr, p.y / dpr);
+    ctx.stroke();
+  }
+
+  function onEnd(ev) {
+    if (!drawing) return;
+    drawing = false;
+    try {
+      if (ev && ev.pointerId !== undefined && cv.releasePointerCapture) {
+        cv.releasePointerCapture(ev.pointerId);
+      }
+    } catch (e) {}
+  }
+
+  // Pointer events
+  cv.addEventListener('pointerdown', onStart, { passive: false });
+  cv.addEventListener('pointermove', onMove, { passive: false });
+  cv.addEventListener('pointerup', onEnd);
+  cv.addEventListener('pointercancel', onEnd);
+  cv.addEventListener('pointerleave', onEnd);
+
+  // Fallback touch events para navegadores móviles estrictos
+  cv.addEventListener('touchstart', onStart, { passive: false });
+  cv.addEventListener('touchmove', onMove, { passive: false });
+  cv.addEventListener('touchend', onEnd);
+  cv.addEventListener('touchcancel', onEnd);
+
   return {
-    clear: function () { cv._drawn = false; resize(); },
-    dataURL: function () { return cv._drawn ? cv.toDataURL('image/png') : ''; }
+    clear: function () {
+      cv._drawn = false;
+      setupCanvas();
+    },
+    dataURL: function () {
+      return cv._drawn ? cv.toDataURL('image/png') : '';
+    }
   };
 }
 
@@ -1109,12 +1179,12 @@ function vInformeForm(qs) {
     field('Nombre del responsable *', 'nombre_responsable', emp.persona_contacto || '', 'text', 'Quien confirma en el cliente') +
     field('Cargo', 'cargo_responsable', emp.cargo_contacto || '', 'text', 'Ej: Administrador') +
     '</div>' +
-    '<label class="fld"><span>Firma del responsable (cliente) *</span>' +
+    '<div class="fld"><span>Firma del responsable (cliente) *</span>' +
     '<canvas id="padResp" class="sig"></canvas>' +
-    '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padResp">Limpiar firma</button></label>' +
-    '<label class="fld"><span>Firma del técnico</span>' +
+    '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padResp">Limpiar firma</button></div>' +
+    '<div class="fld"><span>Firma del técnico</span>' +
     '<canvas id="padTec" class="sig"></canvas>' +
-    '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padTec">Limpiar firma</button></label>' +
+    '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padTec">Limpiar firma</button></div>' +
     '<button class="btn primary block" type="submit">Guardar informe y cerrar jornada</button>' +
     '<p class="hint">Al guardar, las tareas de esta fecha pasarán a Completadas y el informe quedará archivado.</p>' +
     '</form></div>';
