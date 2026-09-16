@@ -669,7 +669,6 @@ function vTareaForm(qs) {
     '</div>' +
     fieldSel('Estado', 'estado', optList(ESTADOS_TAREA_LIST, v('estado') || 'Pendiente', '')) +
     fieldArea('Descripción del trabajo / pedido del cliente', 'descripcion_trabajo', v('descripcion_trabajo'), 'Ej: No enciende, error de red…', true) +
-    fieldArea('Novedad: lo que se encontró', 'novedad', v('novedad'), 'Se completa en el sitio') +
     fieldArea('Trabajo realizado', 'trabajo_realizado', v('trabajo_realizado')) +
     fieldArea('Solución / estado final', 'solucion', v('solucion')) +
     '<div class="row2">' +
@@ -1151,7 +1150,8 @@ function vInformeForm(qs) {
     var prefix = dayTasks.length > 1 ? '(' + (idx + 1) + ') ' : '';
     if (tk.descripcion_trabajo) taskDescList.push(prefix + tk.descripcion_trabajo);
     if (!infExistente) {
-      if (tk.novedad) defaultNovedad += (defaultNovedad ? '\n' : '') + prefix + tk.novedad;
+      var motivo = tk.novedad || tk.descripcion_trabajo;
+      if (motivo) defaultNovedad += (defaultNovedad ? '\n' : '') + prefix + motivo;
       if (tk.trabajo_realizado) defaultTrabajo += (defaultTrabajo ? '\n' : '') + prefix + tk.trabajo_realizado;
       if (tk.solucion) defaultSolucion += (defaultSolucion ? '\n' : '') + prefix + tk.solucion;
       if (tk.recomendaciones) defaultRecom += (defaultRecom ? '\n' : '') + prefix + tk.recomendaciones;
