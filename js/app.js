@@ -158,6 +158,7 @@ function route() {
   if (seg === 'tarea' || seg === 'tarea-form') tab = 'tareas';
   if (seg === 'repuesto-form') tab = 'compras';
   if (seg === 'informe' || seg === 'informe-form') tab = 'informes';
+  if (seg === 'costos') tab = 'costos';
   $$('#tabbar .tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tab); });
 
   try {
@@ -176,6 +177,7 @@ function route() {
     else if (seg === 'informes') vInformes();
     else if (seg === 'informe-form') vInformeForm(qs);
     else if (seg === 'informe' && parts[1]) vInforme(parts[1]);
+    else if (seg === 'costos') vCostos(qs);
     else if (seg === 'ajustes') vAjustes();
     else { location.hash = '#/empresas'; }
   } catch (err) {
@@ -691,8 +693,9 @@ function vTareaForm(qs) {
     fieldArea('Recomendaciones', 'recomendaciones', v('recomendaciones')) +
     '<div class="row2">' +
     field('Fecha del trabajo (día)', 'fecha_trabajo', v('fecha_trabajo') || qs.get('fecha') || Store.today(), 'date', '', true) +
-    field('Técnico responsable', 'tecnico_responsable', v('tecnico_responsable') || Store.db.meta.tecnico || '', 'text', 'Tu nombre') +
+    field('Costo de mano de obra / servicio (' + (Store.db.meta.currency || 'S/ ') + ')', 'costo', v('costo') != null && v('costo') !== '' ? v('costo') : '', 'number', '0.00') +
     '</div>' +
+    field('Técnico responsable', 'tecnico_responsable', v('tecnico_responsable') || Store.db.meta.tecnico || '', 'text', 'Tu nombre') +
     '<button class="btn primary block" type="submit">' + (t ? 'Guardar cambios' : 'Crear tarea') + '</button>' +
     '</form></div>';
 
@@ -711,6 +714,7 @@ function saveTarea(form) {
   if (!d.descripcion_trabajo.trim()) { toast('Escribe una descripción'); return; }
   d.fecha_trabajo = d.fecha_trabajo || Store.today();
   d.informe_emitido = (d.informe_emitido === 'true');
+  if (d.costo !== undefined && d.costo !== '') d.costo = parseFloat(d.costo) || 0;
   var id = form.dataset.id;
   if (id) { Store.upd('tareas', id, d); toast('Tarea actualizada'); }
   else { d.fecha_creacion = Store.today(); var row = Store.add('tareas', d); id = row.id; toast('Tarea creada'); }
@@ -731,6 +735,7 @@ function vTarea(id) {
     '<div class="kv"><span>Equipo</span><b>' + esc(eqName(t.id_equipo)) + '</b></div>' +
     '<div class="kv"><span>Tipo / prioridad</span><b>' + esc(t.tipo_tarea || '—') + ' · ' + esc(t.prioridad || '—') + '</b></div>' +
     '<div class="kv"><span>Descripción</span><b>' + esc(t.descripcion_trabajo || '—') + '</b></div>' +
+    (t.costo != null && t.costo !== '' ? '<div class="kv"><span>Costo de servicio</span><b>' + money(Number(t.costo) || 0) + '</b></div>' : '') +
     (t.novedad ? '<div class="kv"><span>Novedad (encontrado)</span><b>' + esc(t.novedad) + '</b></div>' : '') +
     (t.trabajo_realizado ? '<div class="kv"><span>Trabajo realizado</span><b>' + esc(t.trabajo_realizado) + '</b></div>' : '') +
     (t.solucion ? '<div class="kv"><span>Solución</span><b>' + esc(t.solucion) + '</b></div>' : '') +
@@ -1593,6 +1598,258 @@ function vInforme(id) {
     (x.enviado_a ? '<div class="rep-foot">Comprobante de envío: enviado vía ' + esc(x.enviado_a) + ' el ' + fmtDT(x.fecha_envio) + '</div>' : '') +
     '</div>';
   $('#view').innerHTML = html;
+}
+
+/* =========================================================
+   COSTOS (módulo de costos por tarea y total de seleccionadas)
+   ========================================================= */
+function vCostos(qs) {
+  setTitle('Costos');
+  setNew('<a class="btn primary sm" href="#/tarea-form">+ Nueva tarea</a>');
+
+  var db = Store.db;
+  var tareas = (db.tareas || []).slice();
+
+  // Ordenar tareas por fecha desc, luego por id desc
+  tareas.sort(function (a, b) {
+    var da = a.fecha_trabajo || a.fecha_creacion || '';
+    var db = b.fecha_trabajo || b.fecha_creacion || '';
+    if (da !== db) return db.localeCompare(da);
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+
+  if (!tareas.length) {
+    $('#view').innerHTML = '<div class="stack">' +
+      '<div class="card pad" style="text-align:center; padding: 40px 20px;">' +
+      '<div style="font-size:42px; margin-bottom: 12px;">💰</div>' +
+      '<h2 class="sec" style="margin-bottom:8px;">Sin tareas registradas</h2>' +
+      '<p class="hint">Crea tareas primero para asignar costos y calcular totales.</p>' +
+      '<div style="margin-top:16px;"><a class="btn primary" href="#/tarea-form">+ Crear primera tarea</a></div>' +
+      '</div></div>';
+    return;
+  }
+
+  var curEst = qs.get('est') || '';
+  var curQ = (qs.get('q') || '').trim().toLowerCase();
+
+  // Chips de filtro por estado
+  var chips = '<div class="chips">';
+  chips += '<a class="chip' + (!curEst ? ' on' : '') + '" href="#/costos">Todas (' + tareas.length + ')</a>';
+  ESTADOS_TAREA_LIST.forEach(function (s) {
+    var count = tareas.filter(function (t) { return t.estado === s; }).length;
+    if (count > 0) {
+      chips += '<a class="chip' + (curEst === s ? ' on' : '') + '" href="#/costos?est=' + encodeURIComponent(s) + '">' + esc(s) + ' (' + count + ')</a>';
+    }
+  });
+  chips += '</div>';
+
+  var currSym = db.meta.currency || 'S/ ';
+
+  var html = '<div class="stack costos-wrap">' +
+    '<!-- Resumen de Costos Total Sticky -->' +
+    '<div class="card pad costos-summary-card">' +
+      '<div class="costos-summary-head">' +
+        '<div>' +
+          '<div class="costos-badge-label">TOTAL SELECCIONADO</div>' +
+          '<div class="costos-total-val" id="costosTotalSel">' + currSym + '0.00</div>' +
+        '</div>' +
+        '<div style="text-align:right;">' +
+          '<div class="costos-sel-pill" id="costosCountSel">0 tareas</div>' +
+          '<div class="costos-total-all" id="costosTotalAll">Total global: ' + currSym + '0.00</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="costos-actions-row">' +
+        '<button type="button" class="btn secondary sm" id="btnCostosAll">✓ Seleccionar todas</button>' +
+        '<button type="button" class="btn ghost sm" id="btnCostosNone">✕ Deseleccionar</button>' +
+        '<button type="button" class="btn primary sm" id="btnCostosWa" title="Enviar resumen por WhatsApp">📱 Enviar por WhatsApp</button>' +
+      '</div>' +
+    '</div>' +
+
+    chips +
+
+    '<!-- Barra de búsqueda -->' +
+    '<div class="search">' +
+      '<input id="busCostos" placeholder="Buscar por tarea, empresa o equipo…" value="' + esc(curQ) + '">' +
+    '</div>' +
+
+    '<!-- Lista de Tareas con Costos -->' +
+    '<div id="costosList" class="costos-list">';
+
+  tareas.forEach(function (t) {
+    var cod = 'T-' + String(t.id).padStart(4, '0');
+    var emp = empName(t.id_empresa);
+    var equ = eqName(t.id_equipo);
+    var desc = t.descripcion_trabajo || '(Sin descripción)';
+    var fDate = fmtDate(t.fecha_trabajo || t.fecha_creacion);
+    var searchStr = (cod + ' ' + emp + ' ' + equ + ' ' + desc + ' ' + (t.estado || '')).toLowerCase();
+    var valCosto = (t.costo != null && t.costo !== '') ? t.costo : '';
+
+    html += '<div class="card pad costos-item is-selected" data-id="' + esc(t.id) + '" data-search="' + esc(searchStr) + '" data-est="' + esc(t.estado || '') + '">' +
+      '<div class="costos-item-top">' +
+        '<label class="costos-check-wrap">' +
+          '<input type="checkbox" class="costos-check" data-id="' + esc(t.id) + '" checked>' +
+          '<span class="costos-code-pill">' + cod + '</span>' +
+        '</label>' +
+        '<div class="costos-meta-top">' +
+          '<span class="costos-date">📅 ' + esc(fDate) + '</span>' +
+          badge(t.estado, EST_TAREA) +
+        '</div>' +
+      '</div>' +
+      '<div class="costos-item-body">' +
+        '<div class="costos-desc"><a href="#/tarea/' + esc(t.id) + '" class="costos-link">' + esc(desc) + '</a></div>' +
+        '<div class="costos-sub">' + esc(emp) + (equ ? ' · ' + esc(equ) : '') + '</div>' +
+      '</div>' +
+      '<div class="costos-item-foot">' +
+        '<label class="costos-input-label">' +
+          '<span class="costos-lbl-text">Costo tarea:</span>' +
+          '<div class="costos-input-wrap">' +
+            '<span class="costos-curr-sym">' + esc(currSym) + '</span>' +
+            '<input type="number" step="0.01" min="0" class="costos-input" data-id="' + esc(t.id) + '" value="' + esc(valCosto) + '" placeholder="0.00">' +
+            '<span class="costos-save-check" id="chk-' + esc(t.id) + '">✓</span>' +
+          '</div>' +
+        '</label>' +
+      '</div>' +
+    '</div>';
+  });
+
+  html += '</div></div>';
+  $('#view').innerHTML = html;
+
+  // Manejo reactivo de costos y selección
+  var selectedMap = {};
+  tareas.forEach(function (t) { selectedMap[String(t.id)] = true; });
+
+  function recalc() {
+    var sumSel = 0;
+    var sumAll = 0;
+    var countSel = 0;
+    tareas.forEach(function (t) {
+      var idStr = String(t.id);
+      var cost = parseFloat(t.costo) || 0;
+      sumAll += cost;
+      if (selectedMap[idStr]) {
+        sumSel += cost;
+        countSel++;
+      }
+    });
+
+    var elSel = $('#costosTotalSel');
+    var elCount = $('#costosCountSel');
+    var elAll = $('#costosTotalAll');
+    if (elSel) elSel.textContent = money(sumSel);
+    if (elCount) elCount.textContent = countSel + ' de ' + tareas.length + ' selecc.';
+    if (elAll) elAll.textContent = 'Total global: ' + money(sumAll);
+  }
+
+  // Filtrado dinámico en pantalla
+  var busInp = $('#busCostos');
+  function filterItems() {
+    var q = (busInp ? busInp.value : '').toLowerCase().trim();
+    $$('#costosList .costos-item').forEach(function (item) {
+      var s = item.dataset.search || '';
+      var est = item.dataset.est || '';
+      var matchQ = !q || s.indexOf(q) >= 0;
+      var matchEst = !curEst || est === curEst;
+      item.style.display = (matchQ && matchEst) ? '' : 'none';
+    });
+  }
+
+  if (busInp) busInp.addEventListener('input', filterItems);
+  filterItems();
+
+  // Checkbox individual
+  $$('#costosList .costos-check').forEach(function (chk) {
+    chk.addEventListener('change', function () {
+      var id = chk.dataset.id;
+      selectedMap[id] = chk.checked;
+      var card = chk.closest('.costos-item');
+      if (card) card.classList.toggle('is-selected', chk.checked);
+      recalc();
+    });
+  });
+
+  // Botón Seleccionar todas
+  var bAll = $('#btnCostosAll');
+  if (bAll) bAll.addEventListener('click', function () {
+    $$('#costosList .costos-check').forEach(function (chk) {
+      var card = chk.closest('.costos-item');
+      if (!card || card.style.display !== 'none') {
+        chk.checked = true;
+        selectedMap[chk.dataset.id] = true;
+        if (card) card.classList.add('is-selected');
+      }
+    });
+    recalc();
+  });
+
+  // Botón Deseleccionar todas
+  var bNone = $('#btnCostosNone');
+  if (bNone) bNone.addEventListener('click', function () {
+    $$('#costosList .costos-check').forEach(function (chk) {
+      var card = chk.closest('.costos-item');
+      if (!card || card.style.display !== 'none') {
+        chk.checked = false;
+        selectedMap[chk.dataset.id] = false;
+        if (card) card.classList.remove('is-selected');
+      }
+    });
+    recalc();
+  });
+
+  // Entrada de Costo por tarea (auto-guardado reactivo)
+  $$('#costosList .costos-input').forEach(function (inp) {
+    var id = inp.dataset.id;
+    var taskObj = tareas.find(function (t) { return String(t.id) === String(id); });
+
+    function onCostChange() {
+      var val = inp.value.trim();
+      var num = val === '' ? 0 : parseFloat(val);
+      if (isNaN(num) || num < 0) num = 0;
+      if (taskObj) taskObj.costo = num;
+      Store.upd('tareas', id, { costo: num });
+      recalc();
+      var mark = $('#chk-' + id);
+      if (mark) {
+        mark.classList.add('show');
+        setTimeout(function () { mark.classList.remove('show'); }, 1200);
+      }
+    }
+
+    inp.addEventListener('input', onCostChange);
+    inp.addEventListener('change', onCostChange);
+  });
+
+  // Botón Enviar por WhatsApp
+  var bWa = $('#btnCostosWa');
+  if (bWa) bWa.addEventListener('click', function () {
+    var selTasks = tareas.filter(function (t) { return selectedMap[String(t.id)]; });
+    if (!selTasks.length) {
+      toast('Selecciona al menos una tarea');
+      return;
+    }
+    var total = 0;
+    var lines = ['📋 *RESUMEN DE COSTOS - SERVICIOS TÉCNICOS*'];
+    lines.push('Fecha: ' + fmtDate(Store.today()));
+    lines.push('----------------------------------------');
+    selTasks.forEach(function (t) {
+      var c = parseFloat(t.costo) || 0;
+      total += c;
+      var cod = 'T-' + String(t.id).padStart(4, '0');
+      var emp = empName(t.id_empresa);
+      var desc = t.descripcion_trabajo || '(Sin descripción)';
+      lines.push('• *' + cod + '* (' + emp + '): ' + desc);
+      lines.push('  ↳ Costo: *' + money(c) + '*');
+    });
+    lines.push('----------------------------------------');
+    lines.push('*TOTAL (' + selTasks.length + ' tareas): ' + money(total) + '*');
+    if (db.meta.tecnico) lines.push('Técnico: ' + db.meta.tecnico);
+
+    var text = encodeURIComponent(lines.join('\n'));
+    var url = 'https://api.whatsapp.com/send?text=' + text;
+    window.open(url, '_blank');
+  });
+
+  recalc();
 }
 
 /* =========================================================

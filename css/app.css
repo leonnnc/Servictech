@@ -108,18 +108,23 @@ a.brand:hover { opacity: .88; }
   border: 1px solid rgba(23, 42, 38, .07);
   border-radius: 24px;
   box-shadow: var(--shadow-lg);
-  padding: 6px;
+  padding: 5px 4px;
 }
 .tab {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 5px 0 4px; color: #7C8A86; font-size: 10.5px; font-weight: 500;
-  border-radius: 18px; transition: color .15s;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 5px 1px 4px; color: #7C8A86; font-size: 10px; font-weight: 500;
+  border-radius: 18px; transition: color .15s; min-width: 0;
 }
-.tab svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.tab span {
+  font-size: 9.5px;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+}
+.tab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
 .tab.active { color: var(--teal-dk); font-weight: 700; }
 .tab.active svg {
-  background: var(--teal-soft); border-radius: 12px; padding: 5px;
-  width: 32px; height: 32px; margin-bottom: -10px; margin-top: -6px;
+  background: var(--teal-soft); border-radius: 12px; padding: 4px;
+  width: 29px; height: 29px; margin-bottom: -8px; margin-top: -5px;
   stroke-width: 2.1; color: var(--teal);
 }
 .tab:active svg { transform: scale(.92); }
@@ -588,6 +593,260 @@ body.cover main { padding: 0; }
   text-align: center;
   align-self: flex-start;
   margin-top: 1px;
+}
+
+/* ---------- Módulo de Costos ---------- */
+.costos-wrap {
+  padding-bottom: 30px;
+}
+
+.costos-summary-card {
+  background: linear-gradient(135deg, #0F766E 0%, #115E59 100%);
+  color: #fff;
+  border-radius: 20px;
+  box-shadow: 0 10px 25px -5px rgba(15, 118, 110, 0.4);
+  position: sticky;
+  top: 56px;
+  z-index: 15;
+  border: none;
+}
+
+.costos-summary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.costos-badge-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #A7F3D0;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.costos-total-val {
+  font-size: 30px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.costos-sel-pill {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  backdrop-filter: blur(4px);
+}
+
+.costos-total-all {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+}
+
+.costos-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.costos-actions-row .btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 12px;
+}
+
+.costos-actions-row .btn.secondary {
+  background: #ffffff;
+  color: #0F766E;
+  font-weight: 700;
+}
+
+.costos-actions-row .btn.ghost {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.costos-actions-row .btn.primary {
+  background: #25D366;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(37, 211, 102, 0.3);
+}
+
+.costos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.costos-item {
+  border-radius: 16px;
+  border: 1.5px solid var(--line);
+  transition: border-color .18s, box-shadow .18s, background-color .18s;
+  padding: 14px 16px;
+}
+
+.costos-item.is-selected {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: #FAFCFC;
+  box-shadow: 0 3px 12px rgba(15, 118, 110, 0.06);
+}
+
+.costos-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.costos-check-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.costos-check {
+  width: 19px;
+  height: 19px;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+
+.costos-code-pill {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--teal-dk);
+  background: var(--teal-soft);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.costos-meta-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.costos-date {
+  font-size: 11.5px;
+  color: var(--ink2);
+}
+
+.costos-item-body {
+  margin-bottom: 12px;
+}
+
+.costos-desc {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.costos-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.costos-link:hover {
+  color: var(--teal);
+}
+
+.costos-sub {
+  font-size: 12.5px;
+  color: var(--ink2);
+  margin-top: 3px;
+}
+
+.costos-item-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid #F0F4F3;
+}
+
+.costos-input-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.costos-lbl-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.costos-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #F1F5F4;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  padding: 0 8px;
+  transition: border-color .15s, background-color .15s, box-shadow .15s;
+}
+
+.costos-input-wrap:focus-within {
+  background: #fff;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.costos-curr-sym {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--teal-dk);
+  margin-right: 3px;
+}
+
+.costos-input {
+  width: 95px;
+  padding: 8px 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  border: none;
+  background: transparent;
+  text-align: right;
+  font-family: inherit;
+}
+
+.costos-input:focus {
+  outline: none;
+}
+
+.costos-save-check {
+  font-size: 12px;
+  color: #10B981;
+  font-weight: 800;
+  margin-left: 4px;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity .2s, transform .2s;
+}
+
+.costos-save-check.show {
+  opacity: 1;
+  transform: scale(1);
 }
 
 @media print {
