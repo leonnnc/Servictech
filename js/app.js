@@ -344,9 +344,10 @@ function vEmpresa(id) {
     '</div></div>';
 
   html += '<h2 class="sec">Equipos (' + eqs.length + ')</h2>';
-  eqs.forEach(function (q) {
+  eqs.forEach(function (q, idx) {
     var fReg = q.fecha_registro ? fmtDate(q.fecha_registro) : '';
     html += '<div class="card row">' +
+      '<span class="item-num">#' + (idx + 1) + '</span>' +
       '<div class="row-main">' +
       '<div class="t">' + esc(eqLabel(q)) + '</div>' +
       '<div class="s">Serie ' + esc(q.nro_serie || '—') + (q.ubicacion ? ' · ' + esc(q.ubicacion) : '') + (fReg ? ' · Reg: ' + esc(fReg) : '') + '</div>' +
@@ -379,8 +380,9 @@ function vEmpresa(id) {
         '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/tarea-form?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">+ Tarea</a>' +
         '</div></div>' +
         '<div class="day-items">';
-      group.tareas.forEach(function (t) {
+      group.tareas.forEach(function (t, tIdx) {
         html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
+          '<span class="item-num">#' + (tIdx + 1) + '</span>' +
           '<div class="row-main"><div class="t">' + esc(t.descripcion_trabajo || eqName(t.id_equipo)) + '</div>' +
           '<div class="s">' + esc(eqName(t.id_equipo)) + (t.tipo_tarea ? ' · ' + esc(t.tipo_tarea) : '') + '</div></div>' +
           '<div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
@@ -482,13 +484,14 @@ function eqListHtml(q, idEmp) {
   }
 
   var html = '';
-  list.forEach(function (eq) {
+  list.forEach(function (eq, idx) {
     var emp = Store.get('empresas', eq.id_empresa);
     var fReg = eq.fecha_registro ? fmtDate(eq.fecha_registro) : '';
     var tars = db.tareas.filter(function (t) { return String(t.id_equipo) === String(eq.id); });
     var tarsPend = tars.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
 
     html += '<div class="card row">' +
+      '<span class="item-num">#' + (idx + 1) + '</span>' +
       '<div class="row-main">' +
       '<div class="t">' + esc(eqLabel(eq)) + '</div>' +
       '<div class="s"><b>Cliente:</b> ' + (emp ? esc(emp.razon_social) : '—') + '</div>' +
@@ -616,9 +619,10 @@ function tarListHtml(q, est) {
       '<div class="day-title"><span>📅 ' + esc(dFmt) + '</span><span class="day-badge">' + pl(groups[f].length, 'tarea', 'tareas') + '</span></div>' +
       '</div>' +
       '<div class="day-items">';
-    groups[f].forEach(function (t) {
+    groups[f].forEach(function (t, idx) {
       var cod = 'T-' + String(t.id).padStart(4, '0');
       html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
+        '<span class="item-num">#' + (idx + 1) + '</span>' +
         '<div class="row-main">' +
         '<div class="t">' + esc(t.descripcion_trabajo || '(sin descripción)') + '</div>' +
         '<div class="s">' + esc(empName(t.id_empresa)) + ' · ' + esc(eqName(t.id_equipo)) + '</div>' +
@@ -1108,9 +1112,10 @@ function vInformeForm(qs) {
 
       // Mostrar tareas de la jornada
       html2 += '<div class="day-items">';
-      group.tareas.forEach(function (t) {
+      group.tareas.forEach(function (t, tIdx) {
         var eq = t.id_equipo ? Store.get('equipos', t.id_equipo) : null;
         html2 += '<div class="card row" style="pointer-events:none;opacity:.85;">' +
+          '<span class="item-num">#' + (tIdx + 1) + '</span>' +
           '<div class="row-main">' +
           '<div class="t">' + esc(t.descripcion_trabajo || 'Sin descripción') + '</div>' +
           '<div class="s">' + (eq ? esc(eqLabel(eq)) + ' · ' : '') + '<span class="badge ' + (EST_TAREA[t.estado] || 'mute') + '">' + esc(t.estado) + '</span></div>' +
