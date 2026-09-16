@@ -796,11 +796,17 @@ function vInformes() {
   if (!list.length) html += '<div class="empty"><p>Aún no hay informes emitidos.</p><a class="btn primary" href="#/informe-form">Crear informe por empresa y fecha</a></div>';
   list.forEach(function (x) {
     var fServ = x.fecha_servicio ? fmtDate(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
+    var confBadge = x.conformidad === 'No conforme'
+      ? '<span class="badge danger">⚠️ No conforme</span>'
+      : '<span class="badge ok">✅ Conforme</span>';
     html += '<a class="card row" href="#/informe/' + esc(x.id) + '">' +
       '<div class="row-main"><div class="t">Informe ' + esc(x.codigo) + ' · ' + esc((x.empresa || {}).razon_social || '') + '</div>' +
       '<div class="s">Jornada: <b>' + esc(fServ) + '</b> · Emitido: ' + fmtDT(x.fecha_emision) + '</div>' +
       '<div class="s">Responsable: ' + esc(x.nombre_responsable || 'sin firma') + '</div></div>' +
-      '<div class="row-meta">' + (x.firma_responsable ? '<span class="badge ok">Firmado</span>' : '<span class="badge warn">Sin firma</span>') + '</div></a>';
+      '<div class="row-meta" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">' +
+      confBadge +
+      (x.firma_responsable ? '<span class="badge ok">Firmado</span>' : '<span class="badge warn">Sin firma</span>') +
+      '</div></a>';
   });
   $('#view').innerHTML = html;
 }
@@ -931,7 +937,14 @@ function vInformeForm(qs) {
   changed.forEach(function (r) {
     html += '<div class="kv"><span>' + esc(r.descripcion_pieza) + '</span><b>x' + esc(r.cantidad) + ' · ' + money(r.precio_unitario) + '</b></div>';
   });
-  html += '<h2 class="sec">Conformidad del responsable</h2>' +
+  html += '<h2 class="sec">Conformidad del servicio</h2>' +
+    '<p class="hint">Indica el resultado y satisfacción del cliente al recibir el equipo o servicio:</p>' +
+    '<div class="conformidad-selector">' +
+    '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme" checked> <span>✅ Conforme (Servicio recibido a satisfacción)</span></label>' +
+    '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"> <span>⚠️ No conforme (Observaciones pendientes)</span></label>' +
+    '</div>' +
+    fieldArea('Observaciones de conformidad (opcional)', 'observaciones_conformidad', '', 'Si es no conforme o requiere aclaración adicional') +
+    '<h2 class="sec">Datos del responsable y firmas</h2>' +
     '<div class="row2">' +
     field('Nombre del responsable *', 'nombre_responsable', emp.persona_contacto || '', 'text', 'Quien confirma en el cliente') +
     field('Cargo', 'cargo_responsable', emp.cargo_contacto || '', 'text', 'Ej: Administrador') +
@@ -987,6 +1000,8 @@ function saveInforme(form) {
     trabajo_realizado: d.trabajo_realizado,
     solucion: d.solucion,
     repuestos: changed.map(function (r) { return { pieza: r.descripcion_pieza, cantidad: r.cantidad, precio: r.precio_unitario }; }),
+    conformidad: d.conformidad || 'Conforme',
+    observaciones_conformidad: d.observaciones_conformidad || '',
     nombre_responsable: d.nombre_responsable,
     cargo_responsable: d.cargo_responsable,
     firma_responsable: sigR,
@@ -1030,6 +1045,9 @@ function informeText(x) {
     L.push('REPUESTOS'); x.repuestos.forEach(function (r) { L.push('- ' + r.pieza + ' x' + r.cantidad + ' (' + money(r.precio) + ')'); }); L.push('');
   }
   if (x.solucion) { L.push('SOLUCION / ESTADO FINAL'); L.push(x.solucion); L.push(''); }
+  var confText = x.conformidad === 'No conforme' ? '⚠️ NO CONFORME' : '✅ CONFORME';
+  L.push('ESTADO DE CONFORMIDAD: ' + confText);
+  if (x.observaciones_conformidad) L.push('Observaciones: ' + x.observaciones_conformidad);
   L.push('Conformidad del responsable: ' + (x.nombre_responsable || '') + (x.cargo_responsable ? ' (' + x.cargo_responsable + ')' : ''));
   if (x.tecnico) L.push('Tecnico: ' + x.tecnico);
   return L.join('\n');
@@ -1043,41 +1061,121 @@ function vInforme(id) {
   var e = x.empresa || {};
   var eq = x.equipo;
   var fServ = x.fecha_servicio ? dayLabel(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
-  var html = '<div class="stack no-print">' + '<a class="btn ghost sm" href="#/informes">← Volver</a>' +
+  var isConforme = (x.conformidad !== 'No conforme');
+
+  var totalRepuestos = 0;
+  if (x.repuestos && x.repuestos.length) {
+    x.repuestos.forEach(function (r) { totalRepuestos += (Number(r.cantidad) || 0) * (Number(r.precio) || 0); });
+  }
+
+  var html = '<div class="stack no-print">' + '<a class="btn ghost sm" href="#/informes">← Volver a Informes</a>' +
     '<div class="btnrow">' +
-    '<button class="btn primary sm" data-act="wa-share" data-id="' + esc(id) + '">Enviar por WhatsApp</button>' +
-    '<button class="btn secondary sm" data-act="print">PDF / Imprimir</button>' +
+    '<button class="btn primary sm" data-act="wa-share" data-id="' + esc(id) + '">📱 Enviar por WhatsApp</button>' +
+    '<button class="btn secondary sm" data-act="print">🖨️ PDF / Imprimir</button>' +
     '<button class="btn danger sm" data-act="del-inf" data-id="' + esc(id) + '">Eliminar</button>' +
     '</div></div>';
 
   html += '<div class="report" id="printArea">' +
     '<div class="rep-head">' +
+    '<div>' +
+    '<div class="rep-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg> SERVITECH SOPORTE TÉCNICO</div>' +
     '<div class="rep-t">INFORME DE SERVICIO TÉCNICO</div>' +
+    '<div class="rep-sub">Jornada de atención: <b>' + esc(fServ) + '</b> · Emisión: ' + fmtDT(x.fecha_emision) + ' · Técnico: ' + esc(x.tecnico || '—') + '</div>' +
+    '</div>' +
+    '<div style="text-align:right">' +
     '<div class="rep-code">N° ' + esc(x.codigo) + '</div>' +
-    '<div class="rep-sub">Jornada: <b>' + esc(fServ) + '</b> · Emisión: ' + fmtDT(x.fecha_emision) + ' · Técnico: ' + esc(x.tecnico || '—') + '</div>' +
     '</div>' +
-    '<table class="rep-tbl">' +
-    '<tr><th>Empresa</th><td>' + esc(e.razon_social || '') + (e.ruc ? '<br>RUC ' + esc(e.ruc) : '') + (e.direccion ? '<br>' + esc(e.direccion) : '') + (e.contacto ? '<br>Contacto: ' + esc(e.contacto) : '') + '</td></tr>' +
-    '<tr><th>Fecha de jornada</th><td><b>' + esc(fServ) + '</b></td></tr>' +
-    (eq ? '<tr><th>Equipo</th><td>' + esc([eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' ')) + (eq.serie ? '<br>Serie: ' + esc(eq.serie) : '') + (eq.ubicacion ? ' · ' + esc(eq.ubicacion) : '') + '</td></tr>' : '') +
-    '</table>' +
-    '<h4>1. Lo que se encontró</h4><p class="rep-p">' + esc(x.novedad || '—') + '</p>' +
-    '<h4>2. Lo que se hizo</h4><p class="rep-p">' + esc(x.trabajo_realizado || '—') + '</p>';
+    '</div>' +
+
+    /* Metadatos en cuadrícula */
+    '<div class="rep-meta-grid">' +
+    '<div class="rep-meta-card">' +
+    '<div class="rep-meta-title">Cliente / Empresa</div>' +
+    '<div class="rep-meta-val"><b>' + esc(e.razon_social || '—') + '</b>' +
+    (e.ruc ? '<br>RUC: ' + esc(e.ruc) : '') +
+    (e.direccion ? '<br>' + esc(e.direccion) : '') +
+    (e.contacto ? '<br>Contacto: ' + esc(e.contacto) : '') +
+    '</div></div>' +
+    '<div class="rep-meta-card">' +
+    '<div class="rep-meta-title">Atención y Equipo</div>' +
+    '<div class="rep-meta-val">' +
+    '<b>Fecha:</b> ' + esc(fServ) + '<br>' +
+    (eq ? '<b>Equipo:</b> ' + esc([eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' ')) +
+      (eq.serie ? '<br><b>Serie:</b> ' + esc(eq.serie) : '') +
+      (eq.ubicacion ? '<br><b>Ubicación:</b> ' + esc(eq.ubicacion) : '') : '<b>Atención general en sitio</b>') +
+    '</div></div>' +
+    '<div class="rep-meta-card">' +
+    '<div class="rep-meta-title">Estado de conformidad</div>' +
+    '<div class="rep-meta-val">' +
+    (isConforme
+      ? '<span class="rep-conformidad-badge rep-conf-si">✅ Servicio Conforme</span>'
+      : '<span class="rep-conformidad-badge rep-conf-no">⚠️ No Conforme (Con Observación)</span>') +
+    (x.observaciones_conformidad ? '<div style="margin-top:6px; font-size:12.5px; color:#556;"><b>Obs:</b> ' + esc(x.observaciones_conformidad) + '</div>' : '') +
+    '</div></div>' +
+    '</div>' +
+
+    /* Sección 1: Lo que se encontró */
+    '<div class="rep-sec-card rep-sec-novedad">' +
+    '<div class="rep-sec-header">' +
+    '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>' +
+    '1. Lo que se encontró (Diagnóstico inicial / Novedad)' +
+    '</div>' +
+    '<div class="rep-sec-body">' + esc(x.novedad || 'No se registraron anomalías previas.') + '</div>' +
+    '</div>' +
+
+    /* Sección 2: Trabajo realizado */
+    '<div class="rep-sec-card rep-sec-trabajo">' +
+    '<div class="rep-sec-header">' +
+    '<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6-9.6 9.6a1 1 0 0 1-.7.3H4v-2a1 1 0 0 1 .3-.7l9.6-9.6 1.6 1.6a1 1 0 0 0 1.4-1.4l-2.3-2.3a1 1 0 0 0-1.4 0z"/></svg>' +
+    '2. Trabajo realizado (Acciones técnicas ejecutadas)' +
+    '</div>' +
+    '<div class="rep-sec-body">' + esc(x.trabajo_realizado || 'Mantenimiento preventivo / correctivo general.') + '</div>' +
+    '</div>';
+
+  /* Sección 3: Repuestos */
   if (x.repuestos && x.repuestos.length) {
-    html += '<h4>3. Repuestos utilizados</h4><table class="rep-tbl rep-items"><tr><th>Pieza</th><th>Cant.</th><th>P. unit.</th></tr>';
-    x.repuestos.forEach(function (r) { html += '<tr><td>' + esc(r.pieza) + '</td><td>' + esc(r.cantidad) + '</td><td>' + money(r.precio) + '</td></tr>'; });
-    html += '</table>';
+    html += '<div class="rep-sec-card rep-sec-repuestos">' +
+      '<div class="rep-sec-header">' +
+      '<svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>' +
+      '3. Repuestos y piezas sustituidas' +
+      '</div>' +
+      '<div style="padding:10px 14px; overflow-x:auto;">' +
+      '<table class="rep-tbl"><thead><tr><th>Descripción de la pieza</th><th style="text-align:center; width:70px;">Cant.</th><th style="text-align:right; width:110px;">P. Unit.</th><th style="text-align:right; width:120px;">Subtotal</th></tr></thead><tbody>';
+    x.repuestos.forEach(function (r) {
+      var cant = Number(r.cantidad) || 1;
+      var pUni = Number(r.precio) || 0;
+      var sub = cant * pUni;
+      html += '<tr><td><b>' + esc(r.pieza) + '</b></td><td style="text-align:center;">' + esc(cant) + '</td><td style="text-align:right;">' + money(pUni) + '</td><td style="text-align:right;"><b>' + money(sub) + '</b></td></tr>';
+    });
+    html += '</tbody><tfoot><tr><td colspan="3" style="text-align:right;">Total repuestos:</td><td style="text-align:right;">' + money(totalRepuestos) + '</td></tr></tfoot></table>' +
+      '</div></div>';
   }
-  html += '<h4>' + (x.repuestos && x.repuestos.length ? '4. Solución / estado final' : '3. Solución / estado final') + '</h4><p class="rep-p">' + esc(x.solucion || '—') + '</p>' +
-    '<div class="rep-firmas">' +
-    '<div class="firma"><div class="firma-box">' + (x.firma_responsable ? '<img src="' + x.firma_responsable + '" alt="firma">' : '<span>Sin firma</span>') + '</div>' +
-    '<div class="firma-nombre">' + esc(x.nombre_responsable || 'Responsable') + (x.cargo_responsable ? '<br>' + esc(x.cargo_responsable) : '') + '</div>' +
-    '<div class="firma-rol">Firma del responsable</div></div>' +
-    '<div class="firma"><div class="firma-box">' + (x.firma_tecnico ? '<img src="' + x.firma_tecnico + '" alt="firma">' : '<span>Sin firma</span>') + '</div>' +
-    '<div class="firma-nombre">' + esc(x.tecnico || 'Técnico') + '</div>' +
-    '<div class="firma-rol">Firma del técnico</div></div>' +
+
+  /* Sección 4: Solución y estado final del equipo */
+  var solNum = (x.repuestos && x.repuestos.length) ? '4' : '3';
+  html += '<div class="rep-sec-card rep-sec-solucion">' +
+    '<div class="rep-sec-header">' +
+    '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+    solNum + '. Solución y estado final en que queda el equipo' +
     '</div>' +
-    (x.enviado_a ? '<div class="rep-foot">Enviado a ' + esc(x.enviado_a) + ' el ' + fmtDT(x.fecha_envio) + '</div>' : '') +
+    '<div class="rep-sec-body">' + esc(x.solucion || 'Equipo operativo y probado conforme en presencia del cliente.') + '</div>' +
+    '</div>' +
+
+    /* Firmas y conformidad */
+    '<div class="rep-firmas">' +
+    '<div class="firma">' +
+    '<div class="firma-box">' + (x.firma_responsable ? '<img src="' + x.firma_responsable + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
+    '<div class="firma-nombre">' + esc(x.nombre_responsable || 'Responsable de recepción') + (x.cargo_responsable ? '<br><small>' + esc(x.cargo_responsable) + '</small>' : '') + '</div>' +
+    '<div class="firma-rol">Conformidad del cliente: ' + (isConforme ? '<b>CONFORME</b>' : '<b style="color:#B91C1C">NO CONFORME</b>') + '</div>' +
+    '</div>' +
+    '<div class="firma">' +
+    '<div class="firma-box">' + (x.firma_tecnico ? '<img src="' + x.firma_tecnico + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
+    '<div class="firma-nombre">' + esc(x.tecnico || 'Técnico asignado') + '</div>' +
+    '<div class="firma-rol">Firma del técnico responsable</div>' +
+    '</div>' +
+    '</div>' +
+
+    (x.enviado_a ? '<div class="rep-foot">Comprobante de envío: enviado vía ' + esc(x.enviado_a) + ' el ' + fmtDT(x.fecha_envio) + '</div>' : '') +
     '</div>';
   $('#view').innerHTML = html;
 }
