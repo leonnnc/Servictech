@@ -12,6 +12,7 @@
    entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
+  var VERSION = 'v0.4';
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
@@ -384,9 +385,81 @@ window.Cloud = (function () {
     return raw;
   }
 
+  /* ---------- diagnóstico legible ---------- */
+  function diagnostics() {
+    var m = meta();
+    var dm = (Store.db && Store.db.meta) || {};
+    var counts = {};
+    COLS.forEach(function (c) {
+      counts[c] = (Store.db && Array.isArray(Store.db[c])) ? Store.db[c].length : 0;
+    });
+    var ver = '';
+    try { var el = document.querySelector('.app-ver'); ver = el ? String(el.textContent).trim() : ''; } catch (e) { }
+    var total = COLS.reduce(function (a, c) { return a + counts[c]; }, 0);
+    var veredicto = !st.ready
+      ? 'Firebase no se ha inicializado todavía'
+      : (!st.user
+        ? 'SIN SESIÓN: este equipo guarda solo en su propio navegador y no comparte nada'
+        : (st.error ? ('Con sesión, pero con error: ' + st.error)
+          : 'Con sesión y compartiendo datos'));
+    return {
+      indexHtml: ver,
+      cloudJs: VERSION,
+      dispositivo: deviceName(),
+      proyecto: (cfg() || {}).projectId || '',
+      conSesion: !!st.user,
+      cuenta: st.user ? (st.user.email || '(sin correo)') : (m.email ? ('ninguna ahora · recordaba ' + m.email) : 'ninguna'),
+      uid: st.user ? st.user.uid : '',
+      uidCorto: st.user ? String(st.user.uid).slice(0, 8) : '',
+      escuchaTiempoReal: st.live,
+      ultimaSinc: st.lastSync || m.lastSync || 0,
+      pendienteDeSubir: !!st.pending,
+      error: st.error || '',
+      registros: counts,
+      total: total,
+      updatedAt: dm.updatedAt || 0,
+      syncedAt: dm.syncedAt || 0,
+      veredicto: veredicto
+    };
+  }
+
+  function diagnosticsText() {
+    var d = diagnostics();
+    var l = [];
+    l.push('SERVITECH — DIAGNÓSTICO DE SINCRONIZACIÓN');
+    l.push('Fecha: ' + new Date().toLocaleString());
+    l.push('Archivos cargados: index.html ' + (d.indexHtml || '?') + ' · cloud.js ' + d.cloudJs);
+    l.push('Dispositivo: ' + d.dispositivo);
+    l.push('Proyecto Firebase: ' + d.proyecto);
+    l.push('');
+    l.push('ESTADO: ' + d.veredicto);
+    l.push('Cuenta: ' + d.cuenta);
+    l.push('uid (identificador de la cuenta): ' + (d.uid || '— sin sesión —'));
+    l.push('uid corto: ' + (d.uidCorto || '-'));
+    l.push('Escucha en tiempo real: ' + (d.escuchaTiempoReal ? 'SÍ' : 'NO'));
+    l.push('Última sincronización: ' + (d.ultimaSinc ? new Date(d.ultimaSinc).toLocaleString() : 'nunca'));
+    l.push('Cambios pendientes de subir: ' + (d.pendienteDeSubir ? 'SÍ' : 'no'));
+    l.push('Error: ' + (d.error || 'ninguno'));
+    l.push('');
+    l.push('DATOS EN ESTE DISPOSITIVO:');
+    l.push('  Empresas: ' + d.registros.empresas + ' · Equipos: ' + d.registros.equipos +
+      ' · Tareas: ' + d.registros.tareas + ' · Repuestos: ' + d.registros.repuestos +
+      ' · Informes: ' + d.registros.informes);
+    l.push('  Total: ' + d.total);
+    l.push('  updatedAt (último cambio local): ' + d.updatedAt);
+    l.push('  syncedAt (versión que se sincronizó): ' + d.syncedAt);
+    return l.join('\n');
+  }
+
   /* ---------- al volver a la app (celular) ---------- */
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && st.user) pull(false);
+    if (!st.user) return;
+    if (document.visibilityState === 'hidden') {
+      // El celular suele irse a segundo plano: empujamos lo pendiente ya.
+      if (st.pending) push(true);
+    } else {
+      pull(false);
+    }
   });
   window.addEventListener('online', function () { if (st.user) pull(false); });
 
@@ -395,6 +468,7 @@ window.Cloud = (function () {
     push: push, pull: pull, syncNow: syncNow,
     status: status, onChange: onChange, notifyChange: notifyChange,
     configured: configured, setConfig: setConfig, clearConfig: clearConfig,
-    setAuto: setAuto, meta: meta
+    setAuto: setAuto, meta: meta,
+    diagnostics: diagnostics, diagnosticsText: diagnosticsText, version: VERSION
   };
 })();

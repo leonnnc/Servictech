@@ -2383,7 +2383,7 @@ function vAjustes() {
     '</div>' +
     '<div class="card pad"><h2 class="sec">Instalar en el celular</h2>' +
     '<p class="hint">Cuando la app esté publicada en internet: ábrela en Chrome en tu Android, toca el menú (⋮) y elige "Agregar a pantalla de inicio". Quedará un ícono que la abre a pantalla completa, como una app normal, incluso sin conexión.</p></div>' +
-    '<p class="hint" style="text-align:center">Servitech v0.3 · datos locales en este dispositivo</p>' +
+    '<p class="hint" style="text-align:center">Servitech ' + verApp() + ' · datos locales y nube</p>' +
     '</div>';
   $('#view').innerHTML = html;
   var fi = $('#fileImp');
@@ -2414,27 +2414,68 @@ function fmtMs(ms) {
   return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
+/* Versión mostrada en la cabecera: una sola fuente de verdad. */
+function verApp() {
+  var el = document.querySelector('.app-ver');
+  return el ? String(el.textContent).trim() : '';
+}
+
+/* Copia texto al portapapeles; si el navegador lo bloquea, avisa al usuario. */
+function copiarTexto(t) {
+  var listo = function () { toast('Diagnóstico copiado. Pégalo en el chat.'); };
+  var manual = function () {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      var hecho = !!(document.execCommand && document.execCommand('copy'));
+      document.body.removeChild(ta);
+      toast(hecho ? 'Diagnóstico copiado. Pégalo en el chat.' : 'No se pudo copiar: haz una captura del texto y envíamela');
+    } catch (e) { toast('No se pudo copiar: haz una captura del texto y envíamela'); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(listo).catch(manual);
+  } else { manual(); }
+}
+
 function updateCloudStatus() {
   var el = $('#cloudStatus');
   if (!el || !window.Cloud) return;
   var dot = $('.cloud-dot', el);
+  var txt = $('#cloudText');
   var s = Cloud.status();
-  if (dot) {
-    dot.className = 'cloud-dot';
-    if (s.pending || s.loading) {
-      dot.classList.add('syncing');
-      el.title = 'Sincronizando con Firebase…';
-    } else if (s.connected) {
-      dot.classList.add('ok');
-      el.title = 'Cuenta conectada (' + (s.user || 'sesión') + ') · ' + (s.lastSync ? 'Última sinc: ' + fmtMs(s.lastSync) : 'Sincronizado');
-    } else if (s.ready) {
-      el.title = 'Firebase listo, sin sesión · entra en Ajustes → Nube';
-    } else if (s.error) {
-      dot.classList.add('err');
-      el.title = 'Aviso de nube: ' + s.error;
-    } else {
-      el.title = 'Modo local activo';
-    }
+  if (txt) { txt.className = 'cloud-txt'; txt.textContent = ''; }
+  if (!dot) return;
+  dot.className = 'cloud-dot';
+  if (s.loading) {
+    dot.classList.add('syncing');
+    el.title = 'Conectando a Firebase…';
+    if (txt) txt.textContent = 'Conectando';
+  } else if (s.pending) {
+    dot.classList.add('syncing');
+    el.title = 'Subiendo cambios a la nube…';
+    if (txt) txt.textContent = 'Subiendo';
+  } else if (s.connected && s.error) {
+    dot.classList.add('err');
+    el.title = 'Error de nube: ' + s.error;
+    if (txt) { txt.textContent = 'Error'; txt.classList.add('alerta'); }
+  } else if (s.connected) {
+    dot.classList.add('ok');
+    el.title = 'Conectado como ' + (s.user || 'sesión') + (s.lastSync ? ' · última sinc: ' + fmtMs(s.lastSync) : '');
+  } else if (s.ready) {
+    el.title = 'SIN SESIÓN: este equipo no comparte datos. Entra en Ajustes → Nube.';
+    if (txt) { txt.textContent = 'Sin sesión'; txt.classList.add('alerta'); }
+  } else if (s.error) {
+    dot.classList.add('err');
+    el.title = 'Aviso de nube: ' + s.error;
+    if (txt) { txt.textContent = 'Error'; txt.classList.add('alerta'); }
+  } else {
+    el.title = 'Modo local activo';
   }
 }
 
@@ -2473,6 +2514,16 @@ function renderCloudBox() {
       '</div>';
   }
   if (s.error) h += '<p class="hint err">' + esc(s.error) + '</p>';
+  if (Cloud.diagnosticsText) {
+    h += '<details class="diag"><summary>Diagnóstico de sincronización</summary>' +
+      '<pre class="diag-pre">' + esc(Cloud.diagnosticsText()) + '</pre>' +
+      '<p class="hint">Compara el <b>uid corto</b> en los dos equipos: si son distintos, cada uno está en una cuenta diferente y por eso no comparten nada.</p>' +
+      '<div class="btnrow">' +
+      '<button class="btn ghost sm" data-act="cloud-diag">Copiar diagnóstico</button>' +
+      '<button class="btn ghost sm" data-act="app-refresh">Actualizar la app</button>' +
+      '</div>' +
+      '</details>';
+  }
   box.innerHTML = h;
 }
 
@@ -2607,6 +2658,28 @@ document.addEventListener('click', function (e) {
     confirmBox('Bajar desde la nube', 'Los datos de este dispositivo se reemplazarán por los de la nube. Se guardará una copia de lo que tienes ahora, recuperable con "Restaurar copia anterior".', function () {
       Cloud.pull(true).then(function () { renderCloudBox(); });
     }, 'Bajar');
+  }
+  else if (act === 'cloud-diag') {
+    copiarTexto(Cloud.diagnosticsText());
+  }
+  else if (act === 'app-refresh') {
+    confirmBox('Actualizar la app',
+      'Se descargará la última versión y la app se reiniciará. Tus datos NO se borran.',
+      function () {
+        var recargar = function () { location.reload(); };
+        try {
+          if (window.caches && caches.keys) {
+            caches.keys()
+              .then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); })
+              .then(function () {
+                return (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+                  ? navigator.serviceWorker.getRegistrations() : [];
+              })
+              .then(function (rs) { return Promise.all((rs || []).map(function (r) { return r.unregister(); })); })
+              .then(recargar).catch(recargar);
+          } else { recargar(); }
+        } catch (e) { recargar(); }
+      }, 'Actualizar', false);
   }
   else if (act === 'restore-prev') {
     var prev = null;

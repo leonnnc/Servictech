@@ -92,6 +92,9 @@ a.brand:hover { opacity: .88; }
 }
 .cloud-pill:hover { background: rgba(255, 255, 255, .25); }
 .cloud-dot { width: 7px; height: 7px; border-radius: 50%; background: #9AA5A1; }
+.cloud-txt { font-size: 11px; font-weight: 700; color: #fff; letter-spacing: .2px; }
+.cloud-txt:empty { display: none; }
+.cloud-txt.alerta { background: #FCA5A5; color: #7F1D1D; padding: 1px 6px; border-radius: 999px; }
 .cloud-dot.ok { background: #4ADE80; box-shadow: 0 0 6px rgba(74, 222, 128, .8); }
 .cloud-dot.syncing { background: #FBBF24; animation: pulse 1s infinite alternate; }
 .cloud-dot.err { background: #F87171; }
@@ -546,6 +549,16 @@ body.cover main { padding: 0; }
 .check input { width: 18px; height: 18px; accent-color: var(--teal); }
 
 .hint.err { color: #C0392B; }
+
+/* ---------- diagnóstico de sincronización ---------- */
+.diag { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.diag > summary { font-size: 12.5px; font-weight: 650; color: var(--teal-dk); cursor: pointer; }
+.diag-pre {
+  margin: 10px 0 0; padding: 10px 12px; background: #F1F5F4; border-radius: 12px;
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 11px; line-height: 1.5; color: var(--ink);
+  white-space: pre-wrap; word-break: break-word;
+}
 
 /* ---------- bloques de jornada por fecha ---------- */
 .day-card {

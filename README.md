@@ -1,4 +1,4 @@
-# Servitech v0.3 — App de soporte técnico
+# Servitech v0.4 — App de soporte técnico
 
 PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de tareas, costos de servicios, repuestos e informes con firma y PDF**.
 
@@ -48,6 +48,31 @@ porque guarda capturas y datos de clientes):
 ```powershell
 powershell -ExecutionPolicy Bypass -File pruebas\verificar-sincronizacion.ps1
 ```
+
+### Si un equipo no sincroniza (revisión en 1 minuto)
+
+En la barra superior, junto al icono de nube:
+
+- **etiqueta roja "Sin sesión"** → ese equipo no comparte nada. Entra en
+  Ajustes → Nube con la misma cuenta que usas en el otro.
+- **punto verde, sin etiqueta** → conectado.
+- **"Error"** → el detalle está en Ajustes → Nube.
+
+Y dentro de Ajustes → Nube, el desplegable **Diagnóstico de sincronización**
+muestra en texto: versión de los archivos cargados, cuenta, **uid**, si la
+escucha en tiempo real está activa, cuándo fue la última sincronización y
+cuántos registros hay en ese equipo.
+
+Dos cosas que conviene comparar entre los dos equipos:
+
+1. **El uid corto debe ser el mismo.** Si difiere, cada equipo está en una
+   cuenta distinta y nunca compartirán datos, hagas lo que hagas.
+2. **La versión cargada debe ser la actual.** Si un equipo muestra una versión
+   vieja, quedó con JavaScript antiguo en la caché: pulsa **Actualizar la app**
+   (descarga la última versión y reinicia; no borra datos).
+
+Un equipo puede seguir funcionando sin conexión: lo que haga se sube al
+reconectar.
 
 ## Uso local
 
