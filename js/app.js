@@ -441,7 +441,7 @@ function vEmpresaForm(qs) {
     field('Dirección', 'direccion', v('direccion')) +
     '<div class="row2">' +
     field('Teléfono', 'telefono', v('telefono'), 'tel') +
-    field('Email', 'email', v('email'), 'email') +
+    field('Email', 'email', v('email'), 'email', 'contacto@empresa.com', true) +
     '</div>' +
     '<div class="row2">' +
     field('Persona de contacto', 'persona_contacto', v('persona_contacto')) +
@@ -474,6 +474,11 @@ function readForm(form) {
 
 function saveEmpresa(form) {
   var d = readForm(form);
+  // El correo es obligatorio: es el destinatario del informe al cerrar la jornada.
+  if (!correoValido(d.email)) {
+    toast('El correo de la empresa es obligatorio y debe ser válido (ej: contacto@empresa.com)');
+    return;
+  }
   var id = form.dataset.id;
   if (id) { Store.upd('empresas', id, d); toast('Empresa actualizada'); }
   else { var row = Store.add('empresas', d); id = row.id; toast('Empresa registrada'); }
@@ -1257,6 +1262,25 @@ function vInformeForm(qs) {
   changed.forEach(function (r) {
     html += '<div class="kv"><span>' + esc(r.descripcion_pieza) + '</span><b>x' + esc(r.cantidad) + ' · ' + money(r.precio_unitario) + '</b></div>';
   });
+
+  // --- Monto del servicio: se propone la suma de los precios de las tareas
+  //     de la jornada (módulo Costos) y se puede ajustar a mano. ---
+  var sumaCostos = 0;
+  dayTasks.forEach(function (tk) { sumaCostos += (parseFloat(tk.costo) || 0); });
+  var montoVal = (infExistente && infExistente.monto != null && infExistente.monto !== '')
+    ? infExistente.monto
+    : (sumaCostos > 0 ? sumaCostos : '');
+  var currSym = Store.db.meta.currency || 'S/ ';
+  html += '<h2 class="sec">Monto del servicio</h2>' +
+    '<p class="hint">Es el importe que se cobra por esta jornada y aparecerá en el PDF y en el correo al cliente. ' +
+    (sumaCostos > 0
+      ? 'Calculado desde Costos: <b>' + money(sumaCostos) + '</b> (puedes ajustarlo).'
+      : 'Aún no hay precios en Costos para esta jornada, escríbelo a mano.') + '</p>' +
+    '<label class="fld"><span>Monto total (' + esc(currSym) + ') *</span>' +
+    '<input type="number" name="monto" step="0.01" min="0" inputmode="decimal" value="' + esc(montoVal) + '" placeholder="Ej: 350" required>' +
+    '</label>' +
+    (changed.length ? '<p class="hint">Los repuestos van detallados aparte en el informe, no sumes su costo aquí si ya está incluido.</p>' : '');
+
   html += '<h2 class="sec">Conformidad del servicio</h2>' +
     '<p class="hint">Indica el resultado y satisfacción del cliente al recibir el equipo o servicio:</p>' +
     '<div class="conformidad-selector">' +
@@ -1304,6 +1328,9 @@ function saveInforme(form) {
   var d = readForm(form);
   var pads = window._pads || {};
   if (!d.nombre_responsable.trim()) { toast('Escribe el nombre del responsable'); return; }
+
+  var monto = parseFloat(d.monto);
+  if (!(monto > 0)) { toast('Escribe el monto del servicio (debe ser mayor que 0)'); return; }
 
   var sigR = pads.resp ? pads.resp.dataURL() : '';
   if (!sigR && existingInf && existingInf.firma_responsable) {
@@ -1354,6 +1381,8 @@ function saveInforme(form) {
     existingInf.observaciones_conformidad = d.observaciones_conformidad || '';
     existingInf.nombre_responsable = d.nombre_responsable;
     existingInf.cargo_responsable = d.cargo_responsable;
+    existingInf.monto = monto;
+    existingInf.moneda = Store.db.meta.currency || 'S/ ';
     if (sigR) existingInf.firma_responsable = sigR;
     if (sigT) existingInf.firma_tecnico = sigT;
     existingInf.fecha_modificacion = Store.nowLocal();
@@ -1384,6 +1413,8 @@ function saveInforme(form) {
     observaciones_conformidad: d.observaciones_conformidad || '',
     nombre_responsable: d.nombre_responsable,
     cargo_responsable: d.cargo_responsable,
+    monto: monto,
+    moneda: Store.db.meta.currency || 'S/ ',
     firma_responsable: sigR,
     firma_tecnico: sigT,
     enviado_a: '',
@@ -1433,6 +1464,10 @@ function informeText(x) {
   }
   if (x.solucion) { L.push('SOLUCION / ESTADO FINAL'); L.push(x.solucion); L.push(''); }
   if (x.recomendaciones) { L.push('CONCLUSIONES Y RECOMENDACIONES DEL TECNICO'); L.push(x.recomendaciones); L.push(''); }
+  if (x.monto != null && x.monto !== '') {
+    L.push('MONTO DEL SERVICIO: ' + (x.moneda || 'S/ ') + Number(x.monto).toFixed(2));
+    L.push('');
+  }
   var confText = x.conformidad === 'No conforme' ? '⚠️ NO CONFORME' : '✅ CONFORME';
   L.push('ESTADO DE CONFORMIDAD: ' + confText);
   if (x.observaciones_conformidad) L.push('Observaciones: ' + x.observaciones_conformidad);
@@ -1619,6 +1654,20 @@ function vInforme(id) {
       recNum + '. Conclusiones y recomendaciones del técnico' +
       '</div>' +
       '<div class="rep-sec-body">' + esc(x.recomendaciones) + '</div>' +
+      '</div>';
+  }
+
+  /* Monto del servicio (va sin numerar: es el importe, no una sección de contenido) */
+  if (x.monto != null && x.monto !== '') {
+    html += '<div class="rep-sec-card rep-monto">' +
+      '<div class="rep-sec-header">' +
+      '<svg viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>' +
+      'Monto del servicio' +
+      '</div>' +
+      '<div class="rep-monto-body">' +
+      '<span class="rep-monto-lbl">Importe por la jornada de servicio técnico</span>' +
+      '<span class="rep-monto-val">' + esc(x.moneda || 'S/ ') + Number(x.monto).toFixed(2) + '</span>' +
+      '</div>' +
       '</div>';
   }
 
