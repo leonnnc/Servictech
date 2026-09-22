@@ -420,13 +420,13 @@ function vEmpresa(id) {
   $('#view').innerHTML = html;
 }
 
-function field(label, name, value, type, ph, required) {
+function field(label, name, value, type, ph, required, max) {
   type = type || 'text';
   return '<label class="fld"><span>' + esc(label) + (required ? ' *' : '') + '</span>' +
-    '<input type="' + type + '" name="' + name + '" value="' + esc(value) + '" placeholder="' + esc(ph || '') + '"' + (required ? ' required' : '') + '></label>';
+    '<input type="' + type + '" name="' + name + '" value="' + esc(value) + '" placeholder="' + esc(ph || '') + '"' + (required ? ' required' : '') + (max ? ' maxlength="' + max + '"' : '') + '></label>';
 }
-function fieldArea(label, name, value, ph) {
-  return '<label class="fld"><span>' + esc(label) + '</span><textarea name="' + name + '" rows="3" placeholder="' + esc(ph || '') + '">' + esc(value) + '</textarea></label>';
+function fieldArea(label, name, value, ph, max) {
+  return '<label class="fld"><span>' + esc(label) + '</span><textarea name="' + name + '" rows="3" placeholder="' + esc(ph || '') + '"' + (max ? ' maxlength="' + max + '"' : '') + '>' + esc(value) + '</textarea></label>';
 }
 function fieldSel(label, name, optsHtml) {
   return '<label class="fld"><span>' + esc(label) + '</span><select name="' + name + '">' + optsHtml + '</select></label>';
@@ -2504,10 +2504,10 @@ function confFormulario(env) {
     '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme" checked> <span>✅ Conforme (servicio recibido a satisfacción)</span></label>' +
     '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"> <span>⚠️ No conforme (dejo una observación)</span></label>' +
     '</div>' +
-    fieldArea('Observación (obligatoria si marca No conforme)', 'observacion', '', 'Escriba aquí cualquier observación sobre el servicio') +
+    fieldArea('Observación (obligatoria si marca No conforme)', 'observacion', '', 'Escriba aquí cualquier observación sobre el servicio', 1999) +
     '<div class="row2">' +
-    field('Su nombre *', 'nombre', env.contacto || '', 'text', 'Quien confirma el servicio') +
-    field('Cargo', 'cargo', '', 'text', 'Ej: Administrador') +
+    field('Su nombre', 'nombre', env.contacto || '', 'text', 'Quien confirma el servicio', true, 119) +
+    field('Cargo', 'cargo', '', 'text', 'Ej: Administrador', false, 119) +
     '</div>' +
     '<div class="fld"><span>Su firma *</span>' +
     '<div class="sig-wrap"><canvas id="padCliente" class="sig"></canvas>' +
@@ -2521,17 +2521,31 @@ function confFormulario(env) {
   _padCliente = initPad('padCliente');
 }
 
+/* Marca en este navegador que ya se respondió y muestra el agradecimiento. */
+function confMarcarYGracias() {
+  try { localStorage.setItem('servitech_conf_' + _confToken, '1'); } catch (e) { }
+  confGracias();
+}
+
 /* Envía la respuesta del cliente y muestra la pantalla de agradecimiento. */
 function enviarConformidadCliente(form) {
   var d = readForm(form);
   var obs = (d.observacion || '').trim();
+  var nombre = String(d.nombre || '').trim();
+  var cargo = String(d.cargo || '').trim();
   var conformidad = (d.conformidad === 'No conforme') ? 'No conforme' : 'Conforme';
 
   if (conformidad === 'No conforme' && !obs) {
     toast('Para marcar "No conforme" escriba primero una observación');
     return;
   }
-  if (!String(d.nombre || '').trim()) { toast('Escriba su nombre'); return; }
+  if (!nombre) { toast('Escriba su nombre'); return; }
+
+  // Los mismos topes que exigen las reglas de Firestore: si se pasa de aquí,
+  // el guardado se rechazaría entero y el cliente se quedaría sin poder firmar.
+  if (nombre.length > 119) { toast('El nombre es demasiado largo (máximo 120 caracteres)'); return; }
+  if (cargo.length > 119) { toast('El cargo es demasiado largo (máximo 120 caracteres)'); return; }
+  if (obs.length > 1999) { toast('La observación es demasiado larga (máximo 2000 caracteres)'); return; }
 
   var firma = _padCliente ? _padCliente.dataURL() : '';
   if (!firma) { toast('Firme con el dedo en el recuadro'); return; }
@@ -2542,21 +2556,33 @@ function enviarConformidadCliente(form) {
   Cloud.crearRespuesta(_confUid, _confToken, {
     conformidad: conformidad,
     observacion: obs,
-    nombre: String(d.nombre).trim(),
-    cargo: String(d.cargo || '').trim(),
+    nombre: nombre,
+    cargo: cargo,
     firma: firma,
     recibido_en: Store.nowLocal()
   }).then(function () {
-    try { localStorage.setItem('servitech_conf_' + _confToken, '1'); } catch (e) { }
-    confGracias();
+    confMarcarYGracias();
   }).catch(function (e) {
     var cod = (e && e.code) ? e.code : '';
-    // Si ya existía, es que su respuesta entró antes: cuenta como enviada.
-    if (cod === 'already-exists') {
-      try { localStorage.setItem('servitech_conf_' + _confToken, '1'); } catch (e2) { }
-      confGracias();
+
+    // Volver a enviar no es un error real: su firma ya estaba registrada.
+    if (cod === 'already-exists') { confMarcarYGracias(); return; }
+
+    // "Permiso denegado" puede ser que ya se envió antes desde otro equipo,
+    // o que al técnico le falte publicar las reglas nuevas. Lo comprobamos
+    // leyendo el envío: eso sí está permitido sin sesión.
+    if (cod === 'permission-denied') {
+      Cloud.leerEnvio(_confUid, _confToken).then(function (env) {
+        if (env && env.estado && env.estado !== 'pendiente') { confMarcarYGracias(); return; }
+        if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
+        toast('No se pudo guardar la firma. Avisa al técnico: puede faltar un permiso por publicar.');
+      }).catch(function () {
+        if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
+        toast('No se pudo guardar la firma. Revisa tu conexión e inténtalo otra vez.');
+      });
       return;
     }
+
     if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
     toast('No se pudo enviar: ' + (e && e.message ? e.message : 'error de conexión') + '. Inténtalo otra vez.');
   });
@@ -2695,6 +2721,11 @@ function confBuscarRespuesta(informeId, silencioso) {
       }
     };
     Store.upd('informes', informeId, { conformidad_cliente: nueva });
+    // El envío deja de estar pendiente: así, si el cliente vuelve a abrir el
+    // enlace (o lo abre en otro equipo), su página dirá que ya está registrado.
+    if (window.Cloud && Cloud.actualizarEnvio) {
+      Cloud.actualizarEnvio(c.token, { estado: 'respondido', respondido_en: Store.nowLocal() });
+    }
     if (!silencioso) toast('Conformidad recibida del cliente');
     route();
   }).catch(function (e) {
@@ -2711,9 +2742,11 @@ function confCerrarInforme(informeId) {
 
   Store.upd('informes', informeId, {
     conformidad: (r.conformidad === 'No conforme') ? 'No conforme' : 'Conforme',
-    observaciones_conformidad: r.observacion || '',
+    // Si el cliente no escribió nada, se conserva lo que ya tenía el informe:
+    // un campo vacío no debe borrar el trabajo del técnico.
+    observaciones_conformidad: r.observacion ? r.observacion : (x.observaciones_conformidad || ''),
     nombre_responsable: r.nombre || x.nombre_responsable || '',
-    cargo_responsable: r.cargo || '',
+    cargo_responsable: r.cargo ? r.cargo : (x.cargo_responsable || ''),
     firma_responsable: r.firma || x.firma_responsable || '',
     fecha_modificacion: Store.nowLocal(),
     conformidad_cliente: {

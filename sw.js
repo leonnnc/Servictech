@@ -10,7 +10,7 @@
    Si no hay conexión, se usa la copia guardada: la app sigue funcionando
    sin señal. Sube CACHE cada vez que cambies js/css.
 */
-var CACHE = 'servitech-v1.3';
+var CACHE = 'servitech-v1.4';
 var ASSETS = [
   './',
   './index.html',

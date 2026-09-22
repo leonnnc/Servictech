@@ -1,4 +1,4 @@
-# Servitech v1.0 — App de soporte técnico
+# Servitech v1.1 — App de soporte técnico
 
 PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de tareas, costos de servicios, repuestos e informes con firma y PDF**.
 

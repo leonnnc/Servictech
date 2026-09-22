@@ -32,13 +32,22 @@ declare(strict_types=1);
 error_reporting(E_ALL);
 ini_set('display_errors', '0');   // los errores se devuelven como JSON
 
+$origen = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+// Sin configuracion no sabemos que origenes estan permitidos, pero hay que
+// devolver igual la cabecera CORS: sin ella el navegador oculta el mensaje y
+// el problema se vuelve invisible ("Failed to fetch" en vez de la causa real).
 if (!file_exists(__DIR__ . '/config.php')) {
+    header('Content-Type: application/json; charset=utf-8');
+    if ($origen !== '') {
+        header('Access-Control-Allow-Origin: ' . $origen);
+        header('Vary: Origin');
+    }
     responder(500, ['ok' => false, 'error' => 'Falta config.php (copia config.example.php y rellena tus datos).']);
 }
 $CFG = require __DIR__ . '/config.php';
 
 /* ---------------- CORS ---------------- */
-$origen = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origen !== '' && in_array($origen, $CFG['origenes'], true)) {
     header('Access-Control-Allow-Origin: ' . $origen);
     header('Vary: Origin');
@@ -98,13 +107,14 @@ $limite = (int)($CFG['limite_por_dia'] ?? 30);
 $dir    = (string)($CFG['carpeta_datos'] ?? (__DIR__ . '/datos'));
 if ($limite > 0) {
     if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
-    $f    = $dir . '/limite-' . substr(hash('sha256', ip_del_cliente()), 0, 24) . '.json';
+    $f    = $dir . '/limite-' . substr(hash('sha256', ip_del_cliente($CFG)), 0, 24) . '.json';
     $hoy  = date('Y-m-d');
     $uso  = ['dia' => $hoy, 'n' => 0];
     if (is_file($f)) {
         $previo = json_decode((string)@file_get_contents($f), true);
         if (is_array($previo) && ($previo['dia'] ?? '') === $hoy) { $uso = $previo; }
     }
+    if (!isset($uso['n'])) { $uso['n'] = 0; }
     if ((int)$uso['n'] >= $limite) {
         responder(429, ['ok' => false, 'error' => 'Limite diario de envios alcanzado desde esta conexion.']);
     }
@@ -172,15 +182,25 @@ function responder(int $codigo, array $cuerpo): void
     exit;
 }
 
-function ip_del_cliente(): string
+/**
+ * IP de quien llama, para el limite diario.
+ * Por defecto se usa la IP real de la conexion (REMOTE_ADDR), porque las
+ * cabeceras de proxy las puede falsificar cualquiera: si no, se podria evadir
+ * el limite e incluso gastar la cuota diaria de otra IP.
+ * Solo se miran esas cabeceras si tu hosting esta de verdad detras de un
+ * proxy, activando 'confiar_en_proxy' => true en config.php.
+ */
+function ip_del_cliente(array $CFG): string
 {
-    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
-        if (!empty($_SERVER[$k])) {
-            $partes = explode(',', (string)$_SERVER[$k]);
-            return trim($partes[0]);
+    if (!empty($CFG['confiar_en_proxy'])) {
+        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR'] as $k) {
+            if (!empty($_SERVER[$k])) {
+                $partes = explode(',', (string)$_SERVER[$k]);
+                return trim($partes[0]);
+            }
         }
     }
-    return 'desconocida';
+    return (string)($_SERVER['REMOTE_ADDR'] ?? 'desconocida');
 }
 
 /**

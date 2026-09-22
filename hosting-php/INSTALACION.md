@@ -136,3 +136,7 @@ Debe decir `No syntax errors detected`.
   casi todos los hostings; si `curl` no estuviera, el error lo dirá.
 - Permiso de escritura en la carpeta para el contador de envíos. Si no lo hay,
   el envío funciona igual: solo se pierde el límite por IP.
+- Si tu hosting está detrás de un **proxy o CDN** (por ejemplo Cloudflare),
+  pon `'confiar_en_proxy' => true` en `config.php` para que el límite diario
+  cuente la IP real de quien visita y no la del proxy. En un hosting normal
+  déjalo en `false`: las cabeceras de proxy las puede falsificar cualquiera.

@@ -51,6 +51,12 @@ return [
 
   /* ---- Limites y diagnostico ---- */
   'limite_por_dia' => 30,                  // envios por IP y por dia
+
+  /* Ponlo en true SOLO si tu hosting esta detras de un proxy/CDN de confianza
+     (por ejemplo Cloudflare). Con false se usa la IP real de la conexion, que
+     no se puede falsificar: es lo correcto en un hosting normal. */
+  'confiar_en_proxy' => false,
+
   'carpeta_datos'  => __DIR__ . '/datos',  // donde se guarda el contador (debe poder escribir)
   'clave_prueba'   => 'CAMBIAR-por-una-clave-larga-y-rara',
   'email_prueba'   => 'CAMBIAR-por-tu-correo@gmail.com',
