@@ -1,12 +1,16 @@
 /* Servitech - service worker (activo solo en https)
-   Estrategia:
-     - Navegacion (abrir la app): red primero, con respaldo en cache
-       (asi el celular recibe las mejoras al recargar)
-     - Resto de archivos: se sirve la copia guardada y se actualiza
-       en segundo plano (rapido y sigue funcionando sin conexion)
-   Sube CACHE cada vez que cambies js/css para forzar la actualizacion.
+
+   Estrategia: RED PRIMERO para todo lo propio del sitio.
+
+   Motivo: con "caché primero" (o "stale-while-revalidate") el navegador
+   servía el index.html nuevo pero el JavaScript viejo guardado en caché,
+   así que la app quedaba una versión por detrás y las mejoras no se
+   aplicaban nunca. Comprobado en pruebas: cabecera v0.5 con cloud.js antiguo.
+
+   Si no hay conexión, se usa la copia guardada: la app sigue funcionando
+   sin señal. Sube CACHE cada vez que cambies js/css.
 */
-var CACHE = 'servitech-v0.7';
+var CACHE = 'servitech-v0.8';
 var ASSETS = [
   './',
   './index.html',
@@ -42,33 +46,23 @@ self.addEventListener('fetch', function (e) {
 
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
-  if (url.origin !== location.origin) return;   // Firebase/CDN: siempre por red
+  if (url.origin !== location.origin) return;   // Firebase y CDN: siempre por red
 
-  // Navegacion: red primero; si no hay conexion, la copia guardada.
-  if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req).then(function (res) {
-        var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put('./index.html', copy); });
-        return res;
-      }).catch(function () {
-        return caches.match('./index.html');
-      })
-    );
-    return;
-  }
-
-  // Otros archivos: copia guardada al instante + refresco en segundo plano.
   e.respondWith(
-    caches.match(req).then(function (hit) {
-      var red = fetch(req).then(function (res) {
-        if (res && res.status === 200 && (res.type === 'basic' || res.type === 'default')) {
-          var copy = res.clone();
-          caches.open(CACHE).then(function (c) { c.put(req, copy); });
-        }
-        return res;
-      }).catch(function () { return hit; });
-      return hit || red;
+    fetch(req).then(function (res) {
+      // Guardamos una copia fresca para poder funcionar sin conexión.
+      if (res && res.status === 200 && (res.type === 'basic' || res.type === 'default')) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(req, copy); });
+      }
+      return res;
+    }).catch(function () {
+      // Sin conexión: tiramos de lo guardado.
+      return caches.match(req).then(function (hit) {
+        if (hit) return hit;
+        if (req.mode === 'navigate') return caches.match('./index.html');
+        return new Response('', { status: 504, statusText: 'Sin conexion' });
+      });
     })
   );
 });
