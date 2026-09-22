@@ -12,3 +12,7 @@ diagnostico-*.md
 Thumbs.db
 .DS_Store
 system-commandline-sentinel-files/
+
+# endpoint PHP: credenciales y datos de uso (nunca publicar)
+hosting-php/config.php
+hosting-php/datos/

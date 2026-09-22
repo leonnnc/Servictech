@@ -1,4 +1,4 @@
-# Servitech v0.9 — App de soporte técnico
+# Servitech v1.0 — App de soporte técnico
 
 PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de tareas, costos de servicios, repuestos e informes con firma y PDF**.
 
@@ -13,6 +13,7 @@ Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guard
 - **Costos**: listado completo de tareas con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de tareas seleccionadas y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**.
 - **Repuestos / compras**: estados *Por comprar → Pedido → Recibido → Cambiado*.
 - **Informes de servicio**: emisión consolidada por empresa y fecha de jornada, numeración correlativa anual, repuestos usados, **monto del servicio** (se propone la suma de los precios de la jornada desde Costos y se puede ajustar a mano; aparece en el PDF, en la vista del informe y en el texto para WhatsApp), **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp.
+- **Conformidad del cliente por enlace**: se le manda un correo con un enlace único; el cliente confirma (Conforme / No conforme), deja su observación y **firma desde su propio celular**. La respuesta vuelve sola al informe y tú la revisas y cierras.
 - **Ajustes**: sincronización Firebase con **inicio de sesión por correo/contraseña** (usa la misma cuenta en todos tus equipos para ver los mismos datos), botones *Subir este dispositivo* y *Bajar desde la nube*, copia automática de seguridad antes de reemplazar datos, respaldo/restauración JSON, nombre del técnico y moneda.
 
 ## Sincronización entre la PC y el celular
@@ -81,6 +82,24 @@ Dos cosas que conviene comparar entre los dos equipos:
 Un equipo puede seguir funcionando sin conexión: lo que haga se sube al
 reconectar.
 
+## Conformidad del cliente (firma por enlace)
+
+En lugar de firmar en tu celular, el cliente confirma el servicio desde el suyo.
+
+1. En el informe, **Pedir conformidad al cliente** → se le manda un correo con un enlace único.
+2. El cliente abre el enlace, ve el resumen del servicio (trabajo realizado y monto), marca *Conforme* o *No conforme*, escribe su observación y firma con el dedo.
+3. Su respuesta entra a Firestore y el informe pasa a **Conformidad recibida** (se detecta solo al abrir el informe).
+4. Revisas y pulsas **Revisar y cerrar informe**: la conformidad, la observación y la firma pasan al informe, quedan en el PDF y el informe figura como cerrado, con constancia del correo y la fecha.
+
+Detalles que conviene saber:
+
+- **Hace falta internet** en los dos lados, y que el cliente abra el enlace en el navegador de su celular.
+- **El enlace es la llave**: es un token largo y aleatorio. Quien no lo tenga no puede leer nada, y el cliente solo puede escribir su propia respuesta, una vez.
+- **El cliente no puede escribir en tus datos**: las reglas de Firestore solo le permiten leer ese envío y crear esa respuesta. Ver [`firestore.rules`](firestore.rules).
+- **Si el endpoint de correo no está configurado**, el botón igual genera el enlace y puedes **copiarlo** para mandarlo tú por WhatsApp o correo. El circuito de firma funciona igual.
+- Si el cliente no responde, **puedes seguir firmando tú** en el informe como siempre (Editar → firmas).
+- Para que salga el correo hace falta el endpoint PHP de tu hosting: ver [`hosting-php/INSTALACION.md`](hosting-php/INSTALACION.md).
+
 ## Uso local
 
 ```bash
@@ -99,6 +118,7 @@ Abre `http://127.0.0.1:8765` en el navegador.
 
 - `modelo-de-datos-servitech.md` — modelo de datos completo (fichas y campos).
 - `plantilla-servitech.xlsx` — plantilla de ejemplo de las fichas.
+- `hosting-php/INSTALACION.md` — cómo montar el endpoint que envía el correo de conformidad.
 
 ## Estructura
 
@@ -112,5 +132,10 @@ js/app.js             vistas, rutas y lógica
 sw.js                 service worker (offline; solo en https)
 manifest.webmanifest  manifest de la PWA (en la raíz, para que sus rutas resuelvan bien)
 firestore.rules       reglas de seguridad de Firestore (deben estar publicadas)
+hosting-php/          endpoint PHP de envío del correo (va a tu hosting, NO a GitHub Pages)
 assets/               íconos
 ```
+
+Nota: GitHub Pages solo sirve archivos estáticos, así que `hosting-php/` **no
+se ejecuta** ahí. Es código para subir a tu propio hosting; ver su
+`INSTALACION.md`.

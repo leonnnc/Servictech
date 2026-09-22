@@ -145,6 +145,12 @@ function confirmBox(title, msg, onOk, okLabel, danger) {
 
 /* ---------- enrutador ---------- */
 function route() {
+  // Enlace público de conformidad (el que le llega al cliente por correo):
+  //   .../?c=<token>&u=<uid>
+  // Se atiende antes que nada y sin pedir sesión.
+  var pub = new URLSearchParams(location.search || '');
+  if (pub.get('c') && pub.get('u')) { vConformidadCliente(pub.get('c'), pub.get('u')); return; }
+
   var raw = location.hash || '#/intro';
   if (raw === '#' || raw === '') raw = '#/intro';
   var rest = raw.slice(1);
@@ -1472,6 +1478,10 @@ function informeText(x) {
   L.push('ESTADO DE CONFORMIDAD: ' + confText);
   if (x.observaciones_conformidad) L.push('Observaciones: ' + x.observaciones_conformidad);
   L.push('Conformidad del responsable: ' + (x.nombre_responsable || '') + (x.cargo_responsable ? ' (' + x.cargo_responsable + ')' : ''));
+  if (x.conformidad_cliente && x.conformidad_cliente.estado === 'cerrada') {
+    L.push('Conformidad firmada por el cliente desde el enlace enviado a ' + (x.conformidad_cliente.email || '') +
+      (x.conformidad_cliente.cerrado_en ? ' el ' + x.conformidad_cliente.cerrado_en : ''));
+  }
   if (x.tecnico) L.push('Tecnico: ' + x.tecnico);
   return L.join('\n');
 }
@@ -1671,6 +1681,9 @@ function vInforme(id) {
       '</div>';
   }
 
+  /* Conformidad del cliente: se pide y se recibe por enlace */
+  html += confClienteHtml(x);
+
   /* Firmas y conformidad */
   html += '<div class="rep-firmas">' +
     '<div class="firma">' +
@@ -1686,8 +1699,16 @@ function vInforme(id) {
     '</div>' +
 
     (x.enviado_a ? '<div class="rep-foot">Comprobante de envío: enviado vía ' + esc(x.enviado_a) + ' el ' + fmtDT(x.fecha_envio) + '</div>' : '') +
+    ((x.conformidad_cliente && x.conformidad_cliente.estado === 'cerrada')
+      ? '<div class="rep-foot">Conformidad firmada por el cliente desde el enlace enviado a ' + esc(x.conformidad_cliente.email || '') + ' el ' + esc(fmtDT(x.conformidad_cliente.cerrado_en)) + '</div>'
+      : '') +
     '</div>';
   $('#view').innerHTML = html;
+
+  // Si ya se le pidió la conformidad y todavía no respondió, miramos si llegó.
+  if (x.conformidad_cliente && x.conformidad_cliente.estado === 'enviada') {
+    confBuscarRespuesta(x.id, true);
+  }
 }
 
 /* =========================================================
@@ -2404,6 +2425,366 @@ function vCostos(qs) {
 }
 
 /* =========================================================
+   CONFORMIDAD DEL CLIENTE (página pública, sin sesión)
+   =========================================================
+   El cliente abre el enlace que le llega por correo:
+
+       https://.../?c=<token>&u=<uid>
+
+   Aquí no hay sesión iniciada: las reglas de Firestore solo
+   le permiten leer ese envío y crear su respuesta una vez.
+   Por eso esta vista no toca Store ni los datos del técnico.
+*/
+
+var _padCliente = null;
+var _confToken = '';
+var _confUid = '';
+
+function vConformidadCliente(token, uid) {
+  _confToken = token;
+  _confUid = uid;
+  setTitle('Conformidad del servicio');
+  setNew(null);
+  document.body.classList.add('modo-publico');
+
+  var respondido = false;
+  try { respondido = localStorage.getItem('servitech_conf_' + token) === '1'; } catch (e) { }
+
+  if (respondido) { confGracias(); return; }
+
+  $('#view').innerHTML = '<div class="stack conf-publico"><div class="card pad"><p class="hint">Cargando el detalle del servicio…</p></div></div>';
+
+  if (!window.Cloud || !Cloud.leerEnvio) {
+    confError('No se pudo cargar la aplicación. Revisa tu conexión e inténtalo otra vez.');
+    return;
+  }
+
+  Cloud.leerEnvio(uid, token).then(function (env) {
+    if (!env) { confError('Este enlace no existe o fue retirado. Pídele al técnico que te envíe uno nuevo.'); return; }
+    if (env.estado && env.estado !== 'pendiente') { confGracias(); return; }
+    confFormulario(env);
+  }).catch(function (e) {
+    confError('No se pudo abrir el detalle del servicio. Revisa tu conexión e inténtalo otra vez.' +
+      (e && e.message ? ' (' + e.message + ')' : ''));
+  });
+}
+
+function confError(msj) {
+  document.body.classList.add('modo-publico');
+  $('#view').innerHTML = '<div class="stack conf-publico"><div class="card pad">' +
+    '<h2 class="sec">No pudimos abrir el enlace</h2>' +
+    '<p class="hint">' + esc(msj) + '</p></div></div>';
+}
+
+function confGracias() {
+  document.body.classList.add('modo-publico');
+  $('#view').innerHTML = '<div class="stack conf-publico"><div class="card pad conf-gracias">' +
+    '<div class="conf-ok-mark">✓</div>' +
+    '<h2>Gracias, su conformidad quedó registrada</h2>' +
+    '<p class="hint">Ya le llegó al técnico. Puede cerrar esta página.</p>' +
+    '</div></div>';
+}
+
+function confFormulario(env) {
+  var html = '<div class="stack conf-publico">' +
+    '<div class="card pad">' +
+    '<span class="conf-kicker">Servitech · Conformidad del servicio</span>' +
+    '<h2 class="conf-emp">' + esc(env.empresa || 'Servicio técnico') + '</h2>' +
+    (env.codigo ? '<p class="hint" style="margin-top:2px">Informe ' + esc(env.codigo) +
+      (env.fecha_servicio ? ' · ' + esc(env.fecha_servicio) : '') + '</p>' : '') +
+    (env.tecnico ? '<div class="kv"><span>Técnico</span><b>' + esc(env.tecnico) + '</b></div>' : '') +
+    (env.resumen ? '<div class="conf-bloque"><span class="conf-lbl">Trabajo realizado</span><p>' + esc(env.resumen) + '</p></div>' : '') +
+    (env.monto_txt ? '<div class="conf-monto"><span class="conf-lbl">Monto del servicio</span><b>' + esc(env.monto_txt) + '</b></div>' : '') +
+    '</div>' +
+
+    '<form class="card pad" data-f="conf">' +
+    '<h2 class="sec">Su conformidad</h2>' +
+    '<p class="hint">Marque el resultado y firme con el dedo en el recuadro. Se enviará directamente al técnico.</p>' +
+    '<div class="conformidad-selector">' +
+    '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme" checked> <span>✅ Conforme (servicio recibido a satisfacción)</span></label>' +
+    '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"> <span>⚠️ No conforme (dejo una observación)</span></label>' +
+    '</div>' +
+    fieldArea('Observación (obligatoria si marca No conforme)', 'observacion', '', 'Escriba aquí cualquier observación sobre el servicio') +
+    '<div class="row2">' +
+    field('Su nombre *', 'nombre', env.contacto || '', 'text', 'Quien confirma el servicio') +
+    field('Cargo', 'cargo', '', 'text', 'Ej: Administrador') +
+    '</div>' +
+    '<div class="fld"><span>Su firma *</span>' +
+    '<div class="sig-wrap"><canvas id="padCliente" class="sig"></canvas>' +
+    '<button type="button" class="btn ghost sm sig-clear" data-act="conf-limpiar">Borrar firma</button></div></div>' +
+    '<button class="btn primary block" type="submit" id="confEnviar">Enviar conformidad</button>' +
+    '<p class="hint">Al enviar, su conformidad queda registrada con la fecha de hoy.</p>' +
+    '</form>' +
+    '</div>';
+
+  $('#view').innerHTML = html;
+  _padCliente = initPad('padCliente');
+}
+
+/* Envía la respuesta del cliente y muestra la pantalla de agradecimiento. */
+function enviarConformidadCliente(form) {
+  var d = readForm(form);
+  var obs = (d.observacion || '').trim();
+  var conformidad = (d.conformidad === 'No conforme') ? 'No conforme' : 'Conforme';
+
+  if (conformidad === 'No conforme' && !obs) {
+    toast('Para marcar "No conforme" escriba primero una observación');
+    return;
+  }
+  if (!String(d.nombre || '').trim()) { toast('Escriba su nombre'); return; }
+
+  var firma = _padCliente ? _padCliente.dataURL() : '';
+  if (!firma) { toast('Firme con el dedo en el recuadro'); return; }
+
+  var b = $('#confEnviar');
+  if (b) { b.disabled = true; b.textContent = 'Enviando…'; }
+
+  Cloud.crearRespuesta(_confUid, _confToken, {
+    conformidad: conformidad,
+    observacion: obs,
+    nombre: String(d.nombre).trim(),
+    cargo: String(d.cargo || '').trim(),
+    firma: firma,
+    recibido_en: Store.nowLocal()
+  }).then(function () {
+    try { localStorage.setItem('servitech_conf_' + _confToken, '1'); } catch (e) { }
+    confGracias();
+  }).catch(function (e) {
+    var cod = (e && e.code) ? e.code : '';
+    // Si ya existía, es que su respuesta entró antes: cuenta como enviada.
+    if (cod === 'already-exists') {
+      try { localStorage.setItem('servitech_conf_' + _confToken, '1'); } catch (e2) { }
+      confGracias();
+      return;
+    }
+    if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
+    toast('No se pudo enviar: ' + (e && e.message ? e.message : 'error de conexión') + '. Inténtalo otra vez.');
+  });
+}
+
+/* ---------- Envío desde el informe (lado del técnico) ---------- */
+
+function confNuevoToken() {
+  var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  var s = '';
+  var i;
+  var rnd = (window.crypto && window.crypto.getRandomValues) ? new Uint32Array(32) : null;
+  if (rnd) {
+    window.crypto.getRandomValues(rnd);
+    for (i = 0; i < 32; i++) s += abc.charAt(rnd[i] % abc.length);
+  } else {
+    for (i = 0; i < 32; i++) s += abc.charAt(Math.floor(Math.random() * abc.length));
+  }
+  return s;
+}
+
+/* Enlace público que se le manda al cliente. */
+function confEnlace(token) {
+  var uid = (window.Cloud && Cloud.status) ? (Cloud.status().uid || '') : '';
+  return location.origin + location.pathname + '?c=' + encodeURIComponent(token) + '&u=' + encodeURIComponent(uid);
+}
+
+function confUrlValida(u) {
+  return /^https?:\/\/.+/i.test(String(u || '').trim());
+}
+
+/* Crea (o reutiliza) el envío y manda el correo al cliente. */
+function confEnviarAlCliente(informeId) {
+  var x = Store.get('informes', informeId);
+  if (!x) return;
+
+  var mail = String((x.empresa || {}).email || '').trim();
+  if (!correoValido(mail)) {
+    toast('La empresa no tiene un correo válido. Edita la empresa y escribe uno.');
+    return;
+  }
+  if (!window.Cloud || !Cloud.crearEnvio) { toast('La app no cargó la parte de nube'); return; }
+  var st = Cloud.status ? Cloud.status() : {};
+  if (!st.connected || !st.uid) {
+    toast('Para pedir la conformidad hay que estar conectado en Ajustes → Nube');
+    return;
+  }
+
+  var c = x.conformidad_cliente || {};
+  var token = c.token || confNuevoToken();
+  var resumen = String(x.trabajo_realizado || x.solucion || '').trim();
+  if (resumen.length > 1200) resumen = resumen.slice(0, 1200) + '…';
+
+  var endpoints = String(Store.db.meta.endpoint_correo || '').trim();
+
+  var datos = {
+    estado: 'pendiente',
+    token: token,
+    email: mail,
+    contacto: String(x.nombre_responsable || (x.empresa || {}).persona_contacto || '').trim(),
+    empresa: String((x.empresa || {}).razon_social || ''),
+    codigo: String(x.codigo || ''),
+    fecha_servicio: x.fecha_servicio ? dayLabel(x.fecha_servicio) : '',
+    resumen: resumen,
+    monto_txt: (x.monto != null && x.monto !== '')
+      ? (String(x.moneda || 'S/ ') + Number(x.monto).toFixed(2)) : '',
+    tecnico: String(x.tecnico || Store.db.meta.tecnico || ''),
+    enlace: confEnlace(token),
+    creado_en: Store.nowLocal()
+  };
+
+  Cloud.crearEnvio(token, datos).then(function () {
+    var previo = x.conformidad_cliente || {};
+    Store.upd('informes', informeId, {
+      conformidad_cliente: {
+        estado: 'enviada',
+        token: token,
+        email: mail,
+        enviado_en: Store.nowLocal(),
+        enlace: datos.enlace,
+        respuesta: previo.respuesta || null
+      }
+    });
+
+    if (!confUrlValida(endpoints)) {
+      toast('Enlace listo. Falta configurar el envío en Ajustes: copia el enlace y mándalo tú.');
+      route();
+      return;
+    }
+
+    toast('Enviando el correo a ' + mail + '…');
+    fetch(endpoints, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: st.uid, token: token })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        return { ok: r.ok, j: j || {} };
+      });
+    }).then(function (res) {
+      if (res.ok && res.j.ok) toast('Correo enviado a ' + mail);
+      else toast('No se pudo enviar el correo: ' + (res.j.error || 'revisa el endpoint en Ajustes'));
+      route();
+    }).catch(function () {
+      toast('No se pudo contactar con el endpoint. El enlace quedó listo: puedes copiarlo y mandarlo tú.');
+      route();
+    });
+  }).catch(function (e) {
+    toast('No se pudo registrar el envío en la nube: ' + (e && e.message ? e.message : 'error'));
+  });
+}
+
+/* Busca la respuesta del cliente en Firestore. */
+function confBuscarRespuesta(informeId, silencioso) {
+  var x = Store.get('informes', informeId);
+  if (!x || !x.conformidad_cliente || !x.conformidad_cliente.token) return;
+  if (!window.Cloud || !Cloud.leerRespuesta) return;
+  if (!silencioso) toast('Buscando la respuesta del cliente…');
+
+  var c = x.conformidad_cliente;
+  Cloud.leerRespuesta(c.token).then(function (r) {
+    if (!r) { if (!silencioso) toast('El cliente todavía no ha respondido'); return; }
+    var nueva = {
+      estado: 'recibida',
+      token: c.token,
+      email: c.email,
+      enviado_en: c.enviado_en,
+      enlace: c.enlace,
+      respuesta: {
+        conformidad: r.conformidad === 'No conforme' ? 'No conforme' : 'Conforme',
+        observacion: r.observacion || '',
+        nombre: r.nombre || '',
+        cargo: r.cargo || '',
+        firma: r.firma || '',
+        recibido_en: r.recibido_en || ''
+      }
+    };
+    Store.upd('informes', informeId, { conformidad_cliente: nueva });
+    if (!silencioso) toast('Conformidad recibida del cliente');
+    route();
+  }).catch(function (e) {
+    if (!silencioso) toast('No se pudo consultar la respuesta: ' + (e && e.message ? e.message : 'error'));
+  });
+}
+
+/* Vuelca la respuesta del cliente al informe y lo cierra. */
+function confCerrarInforme(informeId) {
+  var x = Store.get('informes', informeId);
+  if (!x || !x.conformidad_cliente || !x.conformidad_cliente.respuesta) return;
+  var r = x.conformidad_cliente.respuesta;
+  var c = x.conformidad_cliente;
+
+  Store.upd('informes', informeId, {
+    conformidad: (r.conformidad === 'No conforme') ? 'No conforme' : 'Conforme',
+    observaciones_conformidad: r.observacion || '',
+    nombre_responsable: r.nombre || x.nombre_responsable || '',
+    cargo_responsable: r.cargo || '',
+    firma_responsable: r.firma || x.firma_responsable || '',
+    fecha_modificacion: Store.nowLocal(),
+    conformidad_cliente: {
+      estado: 'cerrada',
+      token: c.token,
+      email: c.email,
+      enviado_en: c.enviado_en,
+      enlace: c.enlace,
+      respuesta: r,
+      cerrado_en: Store.nowLocal()
+    }
+  });
+
+  // El envío deja de estar pendiente (el correo ya no debe reenviarse).
+  if (window.Cloud && Cloud.actualizarEnvio && c.token) {
+    Cloud.actualizarEnvio(c.token, { estado: 'respondido', respondido_en: Store.nowLocal() });
+  }
+
+  toast('Informe cerrado con la conformidad del cliente');
+  route();
+}
+
+/* Tarjeta de conformidad del cliente dentro del informe. */
+function confClienteHtml(x) {
+  var c = x.conformidad_cliente || {};
+  var est = c.estado || 'no_enviada';
+  var idt = esc(x.id);
+
+  var html = '<div class="rep-sec-card conf-card">' +
+    '<div class="rep-sec-header">' +
+    '<svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5.3 3.4 9.6 8 10 4.6-.4 8-4.7 8-10V6zm-1 13-3.5-3.5 1.4-1.4L11 12.2l4.1-4.1 1.4 1.4z"/></svg>' +
+    'Conformidad del cliente</div><div class="conf-body">';
+
+  if (est === 'no_enviada') {
+    html += '<p class="hint">Manda al cliente un enlace para que confirme el servicio y firme desde su propio celular. Cuando responda, la conformidad, la observación y su firma entran solas a este informe.</p>' +
+      '<div class="btnrow no-print"><button class="btn primary sm" data-act="conf-pedir" data-id="' + idt + '">✉️ Pedir conformidad al cliente</button></div>';
+  } else if (est === 'enviada') {
+    html += '<p><span class="badge warn">⏳ Esperando respuesta del cliente</span></p>' +
+      '<div class="kv"><span>Enviado a</span><b>' + esc(c.email || '—') + '</b></div>' +
+      (c.enviado_en ? '<div class="kv"><span>Fecha de envío</span><b>' + esc(fmtDT(c.enviado_en)) + '</b></div>' : '') +
+      '<p class="hint">Todavía no ha firmado. Cuando lo haga, esta tarjeta cambiará sola al abrir el informe.</p>' +
+      '<div class="btnrow no-print">' +
+      '<button class="btn secondary sm" data-act="conf-buscar" data-id="' + idt + '">🔄 Buscar respuesta</button>' +
+      '<button class="btn ghost sm" data-act="conf-reenviar" data-id="' + idt + '">Reenviar correo</button>' +
+      '<button class="btn ghost sm" data-act="conf-copiar" data-id="' + idt + '">Copiar enlace</button>' +
+      '</div>';
+  } else if (est === 'recibida') {
+    var r = c.respuesta || {};
+    html += '<p><span class="badge ok">✅ Conformidad recibida del cliente</span></p>' +
+      '<div class="kv"><span>Respuesta</span><b>' + (r.conformidad === 'No conforme' ? '⚠️ No conforme' : '✅ Conforme') + '</b></div>' +
+      (r.observacion ? '<div class="kv"><span>Observación</span><b>' + esc(r.observacion) + '</b></div>' : '') +
+      '<div class="kv"><span>Firmado por</span><b>' + esc(r.nombre || '—') + (r.cargo ? ' (' + esc(r.cargo) + ')' : '') + '</b></div>' +
+      (r.recibido_en ? '<div class="kv"><span>Recibido</span><b>' + esc(fmtDT(r.recibido_en)) + '</b></div>' : '') +
+      '<div class="conf-firma">' + (r.firma ? '<img src="' + r.firma + '" alt="Firma del cliente">' : '<span>Sin firma</span>') + '</div>' +
+      '<p class="hint">Revisa que corresponda a este informe: al cerrar, estos datos pasan al informe y quedan en el PDF.</p>' +
+      '<div class="btnrow no-print">' +
+      '<button class="btn primary sm" data-act="conf-cerrar" data-id="' + idt + '">✅ Revisar y cerrar informe</button>' +
+      '<button class="btn ghost sm" data-act="conf-descartar" data-id="' + idt + '">Descartar respuesta</button>' +
+      '</div>';
+  } else {
+    html += '<p><span class="badge ok">🔒 Conformidad cerrada</span></p>' +
+      '<div class="kv"><span>Respuesta</span><b>' + ((x.conformidad === 'No conforme') ? '⚠️ No conforme' : '✅ Conforme') + '</b></div>' +
+      '<div class="kv"><span>Firmado por</span><b>' + esc(x.nombre_responsable || '—') + '</b></div>' +
+      '<div class="kv"><span>Recibida por correo</span><b>' + esc(c.email || '—') + '</b></div>' +
+      (c.cerrado_en ? '<div class="kv"><span>Cerrado</span><b>' + esc(fmtDT(c.cerrado_en)) + '</b></div>' : '');
+  }
+
+  return html + '</div></div>';
+}
+
+/* =========================================================
    AJUSTES
    ========================================================= */
 function vAjustes() {
@@ -2417,6 +2798,9 @@ function vAjustes() {
     '<h2 class="sec">Datos por defecto</h2>' +
     field('Tu nombre (técnico)', 'tecnico', m.tecnico, 'text', 'Aparecerá en tareas e informes') +
     field('Símbolo de moneda', 'currency', m.currency, 'text', 'Ej: S/  o  US$') +
+    '<h2 class="sec">Correo de conformidad</h2>' +
+    field('Dirección del endpoint de envío', 'endpoint_correo', m.endpoint_correo, 'url', 'https://tu-dominio.com/servitech/enviar.php') +
+    '<p class="hint">Es el archivo <b>enviar.php</b> de tu hosting (los pasos están en <b>hosting-php/INSTALACION.md</b>). Si lo dejas vacío, el informe igual genera el enlace de conformidad y podrás copiarlo para mandarlo tú por WhatsApp o correo.</p>' +
     '<button class="btn primary block" type="submit">Guardar</button></form>' +
     '<div class="card pad"><h2 class="sec">Nube</h2>' +
     '<div id="cloudBox"><p class="hint">Cargando…</p></div></div>' +
@@ -2475,8 +2859,9 @@ function verApp() {
 }
 
 /* Copia texto al portapapeles; si el navegador lo bloquea, avisa al usuario. */
-function copiarTexto(t) {
-  var listo = function () { toast('Diagnóstico copiado. Pégalo en el chat.'); };
+function copiarTexto(t, msjOk) {
+  var ok = msjOk || 'Diagnóstico copiado. Pégalo en el chat.';
+  var listo = function () { toast(ok); };
   var manual = function () {
     try {
       var ta = document.createElement('textarea');
@@ -2489,7 +2874,7 @@ function copiarTexto(t) {
       ta.setSelectionRange(0, ta.value.length);
       var hecho = !!(document.execCommand && document.execCommand('copy'));
       document.body.removeChild(ta);
-      toast(hecho ? 'Diagnóstico copiado. Pégalo en el chat.' : 'No se pudo copiar: haz una captura del texto y envíamela');
+      toast(hecho ? ok : 'No se pudo copiar: haz una captura del texto y envíamela');
     } catch (e) { toast('No se pudo copiar: haz una captura del texto y envíamela'); }
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2805,6 +3190,62 @@ document.addEventListener('click', function (e) {
       location.hash = '#/empresas';
     }, 'Borrar todo');
   }
+  /* ---------- conformidad del cliente ---------- */
+  else if (act === 'conf-pedir' || act === 'conf-reenviar') {
+    var xc = Store.get('informes', id);
+    if (!xc) return;
+    var mailc = String(((xc.empresa || {}).email) || '').trim();
+    if (!correoValido(mailc)) {
+      toast('La empresa no tiene un correo válido. Edítala y escribe uno.');
+      return;
+    }
+    if (window.Cloud && Cloud.status && !Cloud.status().connected) {
+      toast('Primero conéctate a la nube en Ajustes (la respuesta del cliente llega por ahí)');
+      return;
+    }
+    var sinEndpoint = !confUrlValida(Store.db.meta.endpoint_correo);
+    confirmBox(
+      act === 'conf-reenviar' ? 'Reenviar correo al cliente' : 'Pedir conformidad al cliente',
+      'Se enviará un correo a ' + mailc + ' con un enlace para que confirme el servicio y firme desde su celular.' +
+      (sinEndpoint ? ' Todavía no has configurado el endpoint de envío en Ajustes, así que solo se generará el enlace (después podrás copiarlo).' : ''),
+      function () { confEnviarAlCliente(id); },
+      act === 'conf-reenviar' ? 'Reenviar' : 'Enviar'
+    );
+  }
+  else if (act === 'conf-buscar') {
+    confBuscarRespuesta(id, false);
+  }
+  else if (act === 'conf-copiar') {
+    var xl = Store.get('informes', id);
+    var enlace = (xl && xl.conformidad_cliente && xl.conformidad_cliente.enlace) ? xl.conformidad_cliente.enlace : '';
+    if (!enlace) { toast('Todavía no hay enlace. Pulsa primero "Pedir conformidad al cliente".'); return; }
+    copiarTexto(enlace, 'Enlace de conformidad copiado. Ya puedes mandarlo por WhatsApp o correo.');
+  }
+  else if (act === 'conf-cerrar') {
+    confirmBox('Cerrar el informe con la conformidad del cliente',
+      'La conformidad, la observación, el nombre y la firma del cliente pasarán al informe y quedarán en el PDF. Después el informe figura como cerrado.',
+      function () { confCerrarInforme(id); }, 'Cerrar informe');
+  }
+  else if (act === 'conf-descartar') {
+    confirmBox('Descartar la respuesta del cliente',
+      'Se quitará esta respuesta del informe. El enlace seguirá válido: si el cliente vuelve a firmar, podrás recuperarla.',
+      function () {
+        var xd = Store.get('informes', id);
+        if (!xd || !xd.conformidad_cliente) return;
+        var cd = xd.conformidad_cliente;
+        Store.upd('informes', id, {
+          conformidad_cliente: { estado: 'enviada', token: cd.token, email: cd.email, enviado_en: cd.enviado_en, enlace: cd.enlace, respuesta: null }
+        });
+        if (window.Cloud && Cloud.actualizarEnvio && cd.token) {
+          Cloud.actualizarEnvio(cd.token, { estado: 'pendiente' });
+        }
+        toast('Respuesta descartada');
+        route();
+      }, 'Descartar');
+  }
+  else if (act === 'conf-limpiar') {
+    if (_padCliente) { _padCliente.clear(); toast('Firma borrada'); }
+  }
   else if (act === 'print') { window.print(); }
   else if (act === 'pdf-dl') {
     var x = Store.get('informes', id);
@@ -2899,6 +3340,7 @@ document.addEventListener('submit', function (e) {
   else if (kind === 'tar') saveTarea(f);
   else if (kind === 'rep') saveRepuesto(f);
   else if (kind === 'inf') saveInforme(f);
+  else if (kind === 'conf') enviarConformidadCliente(f);
   else if (kind === 'sel-inf-emp') {
     var selEmp = $('select[name=empresa]', f);
     var inpFecha = $('input[name=fecha]', f);
@@ -2916,6 +3358,7 @@ document.addEventListener('submit', function (e) {
     var m = Store.db.meta;
     m.tecnico = f.tecnico.value;
     m.currency = f.currency.value || 'S/ ';
+    m.endpoint_correo = String(f.endpoint_correo.value || '').trim();
     Store.save();
     toast('Ajustes guardados');
     route();

@@ -2,23 +2,84 @@ rules_version = '2';
 
 // ============================================================
 //  Servitech - Reglas de seguridad de Firestore
-//  Cada usuario solo puede leer y escribir SUS propios datos.
-//  La app guarda en:  users/{uid}/app/main
-//  El comodin {document=**} es obligatorio para que la regla
-//  alcance tambien a las subcolecciones (users/{uid}/app/main).
-//  Sin ese comodin, Firestore responde "Missing or insufficient
-//  permissions" y la sincronizacion no funciona.
+//
+//  Hay tres zonas, y solo esas tres:
+//
+//  1) Datos del tecnico -> users/{uid}/app/**   (solo el dueño)
+//     La app guarda todo en users/{uid}/app/main. El comodin
+//     {document=**} es obligatorio para que la regla alcance
+//     tambien a las subcolecciones; sin el, Firestore responde
+//     "Missing or insufficient permissions".
+//
+//  2) Envios para pedir la conformidad del cliente
+//     users/{uid}/envios/{token}
+//     - El cliente puede LEER uno solo, y solo si conoce el
+//       token exacto (allow get). Nunca puede listar.
+//     - El token es largo y aleatorio: hace de llave.
+//
+//  3) Respuestas del cliente
+//     users/{uid}/respuestas/{token}
+//     - El cliente (sin sesion) puede CREAR una sola vez, y
+//       unicamente si el envio existe y sigue pendiente.
+//     - No puede leer, modificar ni borrar nada.
+//
+//  IMPORTANTE: estas reglas hay que PUBLICARLAS en la consola de
+//  Firebase (Firestore Database -> Reglas -> Publicar). Si se
+//  quedan las anteriores, la app no vera la conformidad del
+//  cliente y mostrara "Missing or insufficient permissions".
 // ============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    // ---------- 1. Datos del tecnico ----------
+    match /users/{uid}/app/{document=**} {
+      allow read, write: if esDueno(uid);
     }
 
-    // Todo lo demas queda cerrado.
+    // ---------- 2. Envios para pedir la conformidad ----------
+    match /users/{uid}/envios/{token} {
+      // El cliente lee unicamente este documento (necesita el token).
+      allow get: if true;
+      // Nadie puede listar los envios.
+      allow list: if esDueno(uid);
+      // Crear, corregir y borrar el envio: solo el dueño.
+      allow create, update, delete: if esDueno(uid);
+    }
+
+    // ---------- 3. Respuestas del cliente ----------
+    match /users/{uid}/respuestas/{token} {
+      allow create: if envioPendiente(uid, token) && respuestaValida();
+      allow read, delete: if esDueno(uid);
+    }
+
+    // ---------- 4. Todo lo demas queda cerrado ----------
     match /{document=**} {
       allow read, write: if false;
     }
+  }
+
+  // ================== Funciones auxiliares ==================
+
+  function esDueno(uid) {
+    return request.auth != null && request.auth.uid == uid;
+  }
+
+  // El envio existe, es de ese token y todavia espera respuesta.
+  function envioPendiente(uid, token) {
+    return exists(/databases/$(database)/documents/users/$(uid)/envios/$(token))
+      && get(/databases/$(database)/documents/users/$(uid)/envios/$(token)).data.estado == 'pendiente';
+  }
+
+  // La respuesta trae justo lo que esperamos, ni de mas ni enorme.
+  function respuestaValida() {
+    let d = request.resource.data;
+    return d.keys().hasOnly(['conformidad', 'observacion', 'nombre', 'cargo', 'firma', 'recibido_en'])
+      && (d.conformidad == 'Conforme' || d.conformidad == 'No conforme')
+      && d.nombre is string && d.nombre.size() > 0 && d.nombre.size() < 120
+      && d.observacion is string && d.observacion.size() < 2000
+      && d.cargo is string && d.cargo.size() < 120
+      && d.firma is string && d.firma.size() > 50 && d.firma.size() < 400000
+      && d.recibido_en is string && d.recibido_en.size() < 40;
   }
 }
