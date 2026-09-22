@@ -2,16 +2,30 @@
    Servitech - sincronización con la nube (Firebase)
    - Auth con correo/contraseña (la sesión queda guardada)
    - Firestore con caché offline: si no hay señal, encola
-   - Un documento: users/{uid}/app/main
+   - Un documento por usuario: users/{uid}/app/main
+   - Escucha en tiempo real (onSnapshot): el PC y el celular se
+     ven casi al instante, sin esperar.
+   - Nunca se borran registros del otro equipo: si los dos
+     cambiaron a la vez, se combinan por id (unión).
+
+   IMPORTANTE: la sincronización entre dos dispositivos exige
+   entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
+  var POLL_MS = 60000;
+  var COLS = ['empresas', 'equipos', 'tareas', 'repuestos', 'informes'];
 
-  var st = { ready: false, loading: false, user: null, lastSync: 0, error: '', pending: false, auto: true };
+  var st = {
+    ready: false, loading: false, user: null, lastSync: 0, error: '',
+    pending: false, auto: true, live: false, merged: 0, lastMerge: 0
+  };
   var fb = { app: null, auth: null, db: null, mod: null };
-  var timer = null, pushTimer = null, listeners = [];
+  var timer = null, pushTimer = null, unsub = null, listeners = [];
+  var pushing = false, pushQueued = false;
+  var _initPromise = null;
 
   /* ---------- almacenamiento de configuración/meta ---------- */
   function cfg() {
@@ -47,12 +61,14 @@ window.Cloud = (function () {
       error: st.error,
       pending: st.pending,
       auto: st.auto,
+      live: st.live,
+      merged: st.merged,
+      lastMerge: st.lastMerge,
       project: (cfg() || {}).projectId || ''
     };
   }
 
   /* ---------- inicialización (carga diferida del SDK) ---------- */
-  var _initPromise = null;
   function init() {
     if (!configured()) return Promise.resolve(null);
     if (st.ready) return Promise.resolve(st);
@@ -71,25 +87,19 @@ window.Cloud = (function () {
           fb.db = fsMod.initializeFirestore(fb.app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
         } catch (e) { fb.db = fsMod.getFirestore(fb.app); }
         st.ready = true; st.loading = false;
-        authMod.onAuthStateChanged(fb.auth, async function (u) {
-          st.user = u || null;
-          if (u) {
-            setMeta({ email: u.email || 'Sesión transparente' });
+        authMod.onAuthStateChanged(fb.auth, function (u) {
+          st.user = (u && !u.isAnonymous) ? u : null;
+          if (st.user) {
+            setMeta({ email: st.user.email || '' });
+            st.error = '';
             startAuto();
+            startListener();
             pull(false);
           } else {
-            // Intentar autenticación anónima transparente para no solicitar credenciales al usuario
-            try {
-              var cred = await authMod.signInAnonymously(fb.auth);
-              st.user = cred.user;
-              setMeta({ email: 'Sesión transparente' });
-              startAuto();
-              pull(false);
-            } catch (errAnon) {
-              // Si la auth anónima no estuviera habilitada, conservamos sesión local
-              console.warn('Auth transparente no disponible:', errAnon.message);
-              stopAuto();
-            }
+            // Sin sesión: NO se sincroniza nada. Cada dispositivo guarda
+            // localmente hasta que entres con tu cuenta en Ajustes → Nube.
+            stopAuto();
+            stopListener();
           }
           emit();
         });
@@ -109,57 +119,195 @@ window.Cloud = (function () {
   /* ---------- referencia al documento ---------- */
   function docRef() { return fb.mod.fsMod.doc(fb.db, 'users', st.user.uid, 'app', 'main'); }
 
+  /* ---------- combinar dos bases (unión por id, gana lo remoto) ---------- */
+  function mergeDB(local, remote) {
+    var out = JSON.parse(JSON.stringify(remote || {}));
+    var added = 0;
+    COLS.forEach(function (col) {
+      var rlist = Array.isArray(out[col]) ? out[col] : [];
+      var llist = Array.isArray(local && local[col]) ? local[col] : [];
+      var seen = {};
+      rlist.forEach(function (r) { if (r && r.id != null) seen[String(r.id)] = true; });
+      llist.forEach(function (r) {
+        if (r && r.id != null && !seen[String(r.id)]) { rlist.push(r); added++; }
+      });
+      out[col] = rlist;
+    });
+    var lm = (local && local.meta) || {}, rm = out.meta || (out.meta = {});
+    var lseq = lm.seq || {}, rseq = rm.seq || (rm.seq = {});
+    ['emp', 'equ', 'tar', 'rep', 'inf'].forEach(function (k) {
+      rseq[k] = Math.max(Number(lseq[k] || 0), Number(rseq[k] || 0));
+    });
+    rm.nextInf = Math.max(Number(lm.nextInf || 1), Number(rm.nextInf || 1));
+    rm.year = rm.year || lm.year || new Date().getFullYear();
+    if (!rm.tecnico) rm.tecnico = lm.tecnico || '';
+    if (!rm.currency) rm.currency = lm.currency || 'S/ ';
+    out.v = out.v || (local && local.v) || 1;
+    return { db: out, added: added };
+  }
+
+  function backupPrev() {
+    try { localStorage.setItem('servitech_prev_db_v1', JSON.stringify({ cuando: Date.now(), db: Store.db })); } catch (e) { }
+  }
+
+  function tieneDatos(db) {
+    if (!db) return false;
+    for (var i = 0; i < COLS.length; i++) {
+      if (Array.isArray(db[COLS[i]]) && db[COLS[i]].length) return true;
+    }
+    return false;
+  }
+
   /* ---------- subir ---------- */
   async function push(silent) {
     if (!st.user) return false;
+    if (pushing) { pushQueued = true; return false; }
+    pushing = true;
     st.pending = true; emit();
     var upd = Date.now();
     try {
       var payload = JSON.parse(JSON.stringify(Store.db));
+      payload.meta = payload.meta || {};
+      delete payload.meta.syncedAt;         // dato local, no se comparte
       payload.meta.updatedAt = upd;
       await fb.mod.fsMod.setDoc(docRef(), {
-        payload: payload, updatedAt: upd, device: deviceName(), email: st.user.email
+        payload: payload, updatedAt: upd, device: deviceName(), email: st.user.email || ''
       });
-      if (Store.db && Store.db.meta) Store.db.meta.updatedAt = upd;
-      Store.save(true);
-      st.lastSync = upd; setMeta({ lastSync: upd }); st.error = ''; st.pending = false; emit();
+      // La base remota quedó en esta versión: es nuestra nueva referencia.
+      Store.db.meta.syncedAt = upd;
+      Store.save(true, true);
+      st.lastSync = upd; setMeta({ lastSync: upd });
+      st.error = ''; st.pending = false; emit();
       if (!silent) toast('Datos subidos a la nube');
       return true;
     } catch (e) {
       st.pending = false; st.error = msg(e); emit();
       if (!silent) toast('No se pudo subir: ' + st.error);
       return false;
+    } finally {
+      pushing = false;
+      if (pushQueued) { pushQueued = false; setTimeout(function () { push(true); }, 300); }
     }
   }
 
-  /* ---------- bajar ---------- */
+  /* ---------- aplicar un documento remoto ---------- */
+  async function applySnap(snap, force) {
+    if (!snap.exists()) {
+      // Nube vacía: subimos lo de este dispositivo.
+      return await push(true);
+    }
+    var d = snap.data() || {};
+    var payload = d.payload || null;
+    if (!payload || !payload.v) return false;
+    var rUpd = Number(d.updatedAt || (payload.meta && payload.meta.updatedAt) || 0);
+
+    var m = Store.db.meta || {};
+    var base = Number(m.syncedAt || 0);     // versión que ya teníamos
+    var lUpd = Number(m.updatedAt || 0);    // última edición local
+    var dirty = lUpd > base;                // hay cambios locales sin subir
+
+    if (force) {
+      backupPrev();
+      Store.importJSON(JSON.stringify(payload), true);
+      Store.db.meta.updatedAt = rUpd;
+      Store.db.meta.syncedAt = rUpd;
+      Store.save(true, true);
+      st.lastSync = Date.now(); setMeta({ lastSync: st.lastSync });
+      st.error = ''; emit();
+      rerender();
+      toast('Datos reemplazados por los de la nube');
+      return true;
+    }
+
+    if (rUpd <= base) {
+      // La nube no tiene nada nuevo (o venía de nosotros mismos).
+      if (dirty || (tieneDatos(Store.db) && !tieneDatos(payload))) return await push(true);
+      markSync();
+      return true;
+    }
+
+    // Protección: la nube está vacía y este dispositivo sí tiene datos.
+    if (tieneDatos(Store.db) && !tieneDatos(payload)) return await push(true);
+
+    if (!dirty) {
+      // Solo cambió la nube: la adoptamos.
+      backupPrev();
+      Store.importJSON(JSON.stringify(payload), true);
+      Store.db.meta.updatedAt = rUpd;
+      Store.db.meta.syncedAt = rUpd;
+      Store.save(true, true);
+      markSync();
+      rerender();
+      toast('Datos actualizados desde la nube');
+      return true;
+    }
+
+    // Los dos lados cambiaron: combinamos para no perder nada.
+    var res = mergeDB(Store.db, payload);
+    if (res.added > 0) {
+      backupPrev();
+      Store.importJSON(JSON.stringify(res.db), true);
+      Store.db.meta.updatedAt = Date.now();
+      Store.db.meta.syncedAt = rUpd;
+      Store.save(true, true);
+      st.merged += res.added; st.lastMerge = Date.now();
+      rerender();
+      toast('Se combinaron ' + res.added + ' registro(s) del otro equipo');
+    } else {
+      backupPrev();
+      Store.importJSON(JSON.stringify(payload), true);
+      Store.db.meta.updatedAt = rUpd;
+      Store.db.meta.syncedAt = rUpd;
+      Store.save(true, true);
+      rerender();
+    }
+    return await push(true);
+  }
+
+  function markSync() {
+    st.lastSync = Date.now(); setMeta({ lastSync: st.lastSync }); st.error = ''; emit();
+  }
+
+  function rerender() {
+    if (typeof route !== 'function') return;
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tag) >= 0) return;  // no interrumpir si está escribiendo
+    try { route(); } catch (e) { }
+  }
+
+  /* ---------- bajar (consulta puntual) ---------- */
   async function pull(force) {
     if (!st.user) return false;
     try {
       var snap = await fb.mod.fsMod.getDoc(docRef());
-      if (!snap.exists()) { return await push(true); }
-      var d = snap.data() || {};
-      var rUpd = Number(d.updatedAt || 0);
-      var lUpd = Number((Store.db.meta || {}).updatedAt || 0);
-      if (force || rUpd > lUpd) {
-        // Guardar una copia de lo que había antes de reemplazarlo (recuperable en Ajustes)
-        try { localStorage.setItem('servitech_prev_db_v1', JSON.stringify({ cuando: Date.now(), db: Store.db })); } catch (e) { }
-        Store.importJSON(JSON.stringify(d.payload), true);
-        st.lastSync = Date.now(); setMeta({ lastSync: st.lastSync }); st.error = ''; emit();
-        var activeTag = document.activeElement && document.activeElement.tagName;
-        if (!activeTag || !['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {
-          route();
-        }
-        toast('Datos actualizados desde la nube');
-        return true;
-      }
-      if (lUpd > rUpd) { return await push(true); }
-      st.lastSync = Date.now(); setMeta({ lastSync: st.lastSync }); emit();
-      return true;
+      return await applySnap(snap, !!force);
     } catch (e) {
       st.error = msg(e); emit();
       return false;
     }
+  }
+
+  /* ---------- escucha en tiempo real ---------- */
+  function startListener() {
+    stopListener();
+    if (!st.user) return;
+    try {
+      unsub = fb.mod.fsMod.onSnapshot(docRef(), function (snap) {
+        // Ignoramos lo que nosotros mismos acabamos de escribir (aún en cola).
+        if (snap.metadata && snap.metadata.hasPendingWrites) return;
+        if (!st.user) return;
+        applySnap(snap, false).catch(function () { });
+      }, function (err) {
+        st.error = msg(err); emit();
+      });
+      st.live = true; emit();
+    } catch (e) {
+      st.live = false;
+    }
+  }
+  function stopListener() {
+    if (unsub) { try { unsub(); } catch (e) { } unsub = null; }
+    st.live = false;
   }
 
   /* ---------- sesión ---------- */
@@ -169,23 +317,39 @@ window.Cloud = (function () {
     try {
       var r = await fb.mod.authMod.signInWithEmailAndPassword(fb.auth, email, pass);
       setMeta({ email: email }); st.user = r.user; st.error = '';
+      startAuto(); startListener();
       await pull(false); emit();
       return r.user;
     } catch (e) {
       st.error = msg(e); emit(); throw e;
     }
   }
+
+  async function signUp(email, pass) {
+    await init();
+    if (!st.ready) throw new Error('Firebase no está configurado');
+    try {
+      var r = await fb.mod.authMod.createUserWithEmailAndPassword(fb.auth, email, pass);
+      setMeta({ email: email }); st.user = r.user; st.error = '';
+      startAuto(); startListener();
+      await pull(false); emit();
+      return r.user;
+    } catch (e) {
+      st.error = msg(e); emit(); throw e;
+    }
+  }
+
   async function signOut() {
     try { await init(); if (fb.auth) await fb.mod.authMod.signOut(fb.auth); } catch (e) { }
-    st.user = null; st.error = ''; stopAuto(); setMeta({ email: '' }); emit();
+    st.user = null; st.error = ''; stopAuto(); stopListener(); setMeta({ email: '' }); emit();
   }
 
   /* ---------- automático ---------- */
-  function startAuto() { stopAuto(); if (!st.auto) return; timer = setInterval(function () { if (st.user) pull(false); }, 60000); }
+  function startAuto() { stopAuto(); if (!st.auto) return; timer = setInterval(function () { if (st.user) pull(false); }, POLL_MS); }
   function stopAuto() { if (timer) { clearInterval(timer); timer = null; } }
   function setAuto(v) { st.auto = !!v; if (!st.auto) stopAuto(); else if (st.user) startAuto(); emit(); }
   function notifyChange() {
-    if (!st.user) return;
+    if (!st.user) return;                       // sin sesión: solo local
     if (!st.auto) { st.pending = true; emit(); return; }
     if (pushTimer) clearTimeout(pushTimer);
     st.pending = true; emit();
@@ -200,13 +364,15 @@ window.Cloud = (function () {
       'auth/invalid-credential': 'Correo o contraseña incorrectos',
       'auth/wrong-password': 'Contraseña incorrecta',
       'auth/invalid-login-credentials': 'Correo o contraseña incorrectos',
-      'auth/user-not-found': 'Ese usuario no existe en Firebase (créalo en Authentication → Users)',
+      'auth/user-not-found': 'Ese correo no tiene cuenta todavía: usa "Crear cuenta" para crearla',
+      'auth/email-already-in-use': 'Ese correo ya tiene cuenta: usa "Conectar" en vez de "Crear cuenta"',
+      'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres',
       'auth/invalid-email': 'El correo no es válido',
-      'auth/operation-not-allowed': 'Falta habilitar "Correo electrónico/contraseña" en Authentication',
+      'auth/operation-not-allowed': 'Falta habilitar "Correo electrónico/contraseña" en Firebase → Authentication → Método de acceso',
       'auth/configuration-not-found': 'Authentication aún no está habilitada en el proyecto',
       'auth/invalid-api-key': 'La apiKey no corresponde a este proyecto',
       'auth/network-request-failed': 'Sin conexión a internet',
-      'permission-denied': 'Permiso denegado: revisa las reglas de Firestore',
+      'permission-denied': 'Permiso denegado: publica las reglas de Firestore (Firebase → Firestore → Reglas)',
       'unavailable': 'Firestore no disponible (verifica que creaste la base de datos)',
       'not-found': 'No se encontró la base de datos de Firestore',
       'failed-precondition': 'Firestore necesita crearse o habilitarse'
@@ -214,11 +380,18 @@ window.Cloud = (function () {
     if (map[c]) return map[c];
     var raw = (e && (e.message || e.code)) || 'Error desconocido';
     if (/CONFIGURATION_NOT_FOUND/i.test(raw)) return 'Authentication aún no está habilitada en el proyecto';
+    if (/Missing or insufficient permissions/i.test(raw)) return 'Permiso denegado: publica las reglas de Firestore (Firebase → Firestore → Reglas)';
     return raw;
   }
 
+  /* ---------- al volver a la app (celular) ---------- */
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && st.user) pull(false);
+  });
+  window.addEventListener('online', function () { if (st.user) pull(false); });
+
   return {
-    init: init, signIn: signIn, signOut: signOut,
+    init: init, signIn: signIn, signUp: signUp, signOut: signOut,
     push: push, pull: pull, syncNow: syncNow,
     status: status, onChange: onChange, notifyChange: notifyChange,
     configured: configured, setConfig: setConfig, clearConfig: clearConfig,

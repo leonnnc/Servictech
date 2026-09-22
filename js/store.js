@@ -64,9 +64,15 @@ window.Store = (function () {
     return db;
   }
 
-  function save(skipNotify) {
+  /*
+    save(skipNotify, noTouch)
+      - skipNotify: no avisa a la nube (uso interno de la sincronización)
+      - noTouch:    no marca "updatedAt" (lo usa la nube para guardar su
+                    referencia de versión sin fingir una edición del usuario)
+  */
+  function save(skipNotify, noTouch) {
     ensureMeta();
-    db.meta.updatedAt = Date.now();
+    if (!noTouch) db.meta.updatedAt = Date.now();
     localStorage.setItem(KEY, JSON.stringify(db));
     if (!skipNotify && window.Cloud && Cloud.notifyChange) Cloud.notifyChange();
   }

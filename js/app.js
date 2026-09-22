@@ -2451,7 +2451,11 @@ function renderCloudBox() {
     '<div><b>' + titulo + '</b>' +
     '<div class="s">' + sub + (s.lastSync ? ' · Sincronizado ' + fmtMs(s.lastSync) : '') + '</div></div></div>';
   if (s.connected) {
-    h += '<p class="hint">Tus datos de empresas, tareas, repuestos e informes se sincronizan con esta cuenta. Usa la misma cuenta en tu otro equipo para ver lo mismo.</p>' +
+    h += '<p class="hint">' + (s.live
+      ? 'Sincronización activa en tiempo real: lo que cambies aquí aparece en tu otro equipo en segundos.'
+      : 'Tus datos de empresas, tareas, repuestos e informes se sincronizan con esta cuenta.') +
+      ' Usa <b>la misma cuenta</b> en el otro equipo para ver exactamente lo mismo.</p>' +
+      (s.lastMerge ? '<p class="hint">Se combinaron registros de otro equipo: ' + fmtMs(s.lastMerge) + '</p>' : '') +
       '<div class="btnrow">' +
       '<button class="btn secondary sm" data-act="cloud-sync">Sincronizar ahora</button>' +
       '<button class="btn ghost sm" data-act="cloud-push">Subir este dispositivo</button>' +
@@ -2459,11 +2463,13 @@ function renderCloudBox() {
       '</div>' +
       '<div class="btnrow"><button class="btn ghost sm" data-act="cloud-logout">Cerrar sesión</button></div>';
   } else if (s.ready) {
-    h += '<p class="hint">Entra con el correo y la contraseña de tu cuenta para unir este dispositivo con el resto. Antes de bajar datos de la nube, descarga un respaldo.</p>' +
+    h += '<p class="hint">Para que el celular y la PC vean los mismos datos, entra con <b>una sola cuenta</b> en los dos. ' +
+      'Si todavía no tienes cuenta, créala aquí abajo (sirve cualquier correo y una contraseña de 6 caracteres o más).</p>' +
       '<label class="fld"><span>Correo</span><input id="clEmail" type="email" autocomplete="username" placeholder="tucorreo@gmail.com"></label>' +
-      '<label class="fld"><span>Contraseña</span><input id="clPass" type="password" autocomplete="current-password" placeholder="Tu contraseña"></label>' +
+      '<label class="fld"><span>Contraseña</span><input id="clPass" type="password" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></label>' +
       '<div class="btnrow">' +
       '<button class="btn primary sm" data-act="cloud-connect">Conectar</button>' +
+      '<button class="btn ghost sm" data-act="cloud-signup">Crear cuenta</button>' +
       '</div>';
   }
   if (s.error) h += '<p class="hint err">' + esc(s.error) + '</p>';
@@ -2563,6 +2569,25 @@ document.addEventListener('click', function (e) {
       toast(Cloud.status().error || 'No se pudo conectar');
       renderCloudBox();
     });
+  }
+  else if (act === 'cloud-signup') {
+    var emS = $('#clEmail'), pwS = $('#clPass');
+    var emailS = ((emS && emS.value) || '').trim();
+    var passS = (pwS && pwS.value) || '';
+    if (!emailS || !passS) { toast('Escribe correo y contraseña'); return; }
+    if (passS.length < 6) { toast('La contraseña debe tener al menos 6 caracteres'); return; }
+    confirmBox('Crear cuenta en la nube',
+      'Se creará la cuenta ' + emailS + ' con esa contraseña. Después entra con el mismo correo y contraseña en tu celular para que los dos vean los mismos datos. ¿Continuar?',
+      function () {
+        b.disabled = true; b.textContent = 'Creando…';
+        Cloud.signUp(emailS, passS).then(function () {
+          toast('Cuenta creada y conectada');
+          renderCloudBox();
+        }).catch(function () {
+          toast(Cloud.status().error || 'No se pudo crear la cuenta');
+          renderCloudBox();
+        });
+      }, 'Crear cuenta', false);
   }
   else if (act === 'cloud-logout') {
     confirmBox('Cerrar sesión en la nube', 'La sincronización se detendrá en este dispositivo. Tus datos locales se mantienen.', function () {

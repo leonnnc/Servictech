@@ -51,8 +51,14 @@ const firebaseConfig = {
 
 ## Paso 5 — Poner las reglas de seguridad
 
+> **Este paso es obligatorio y es el que más se olvida.** Si las reglas quedan
+> como vienen por defecto, Firestore responde *"Missing or insufficient
+> permissions"* incluso para tu propio usuario, y **nada se sincroniza**
+> (queda todo solo en el dispositivo, como si la nube no existiera).
+
 1. Dentro de Firestore, pestaña **Reglas** (Rules).
-2. Borra lo que hay y pega exactamente esto:
+2. Borra lo que hay y pega exactamente el contenido del archivo
+   [`firestore.rules`](firestore.rules) del proyecto:
 
 ```
 rules_version = '2';
@@ -61,6 +67,9 @@ service cloud.firestore {
     match /users/{uid}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
 ```
@@ -68,6 +77,19 @@ service cloud.firestore {
 3. Clic en **Publicar**.
 
 > Importante: la app guarda en `users/{uid}/app/main` (una **subcolección**). El comodín `{document=**}` es obligatorio para que la regla alcance también a las subcolecciones; con solo `match /users/{uid}` la app daría "Permiso denegado".
+
+### Cómo comprobar que quedaron bien
+
+Desde la carpeta del proyecto:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File pruebas\verificar-sincronizacion.ps1
+```
+
+El script crea un usuario de prueba, escribe y lee un documento con la misma
+forma que usa la app, e intenta (debiendo fallar) tocar datos de otro usuario.
+Si las reglas están bien, verás `RESULTADO: 3 correctas, 0 fallidas`.
+
 
 Con esto, **solo tu usuario** puede leer y escribir tus datos; nadie más, aunque conozca el enlace.
 
