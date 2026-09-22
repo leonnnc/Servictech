@@ -2450,32 +2450,60 @@ function updateCloudStatus() {
   var txt = $('#cloudText');
   var s = Cloud.status();
   if (txt) { txt.className = 'cloud-txt'; txt.textContent = ''; }
-  if (!dot) return;
-  dot.className = 'cloud-dot';
+  if (dot) {
+    dot.className = 'cloud-dot';
+    if (s.loading) {
+      dot.classList.add('syncing');
+      el.title = 'Conectando a Firebase…';
+      if (txt) txt.textContent = 'Conectando';
+    } else if (s.pending) {
+      dot.classList.add('syncing');
+      el.title = 'Subiendo cambios a la nube…';
+      if (txt) txt.textContent = 'Subiendo';
+    } else if (s.connected && s.error) {
+      dot.classList.add('err');
+      el.title = 'Error de nube: ' + s.error;
+      if (txt) { txt.textContent = 'Error'; txt.classList.add('alerta'); }
+    } else if (s.connected) {
+      dot.classList.add('ok');
+      el.title = 'Conectado como ' + (s.user || 'sesión') + (s.lastSync ? ' · última sinc: ' + fmtMs(s.lastSync) : '');
+    } else if (s.ready) {
+      el.title = 'SIN SESIÓN: este equipo no comparte datos. Entra en Ajustes → Nube.';
+      if (txt) { txt.textContent = 'Sin sesión'; txt.classList.add('alerta'); }
+    } else if (s.error) {
+      dot.classList.add('err');
+      el.title = 'Aviso de nube: ' + s.error;
+      if (txt) { txt.textContent = 'Error'; txt.classList.add('alerta'); }
+    } else {
+      el.title = 'Modo local activo';
+    }
+  }
+  updateSyncBanner(s);
+}
+
+/* Aviso grande y visible en cualquier pantalla: es lo que delata que un
+   equipo quedó aislado (mismo enlace NO significa mismos datos). */
+function updateSyncBanner(s) {
+  var ban = $('#syncBanner');
+  if (!ban) return;
+  var txt = '', aviso = false;
   if (s.loading) {
-    dot.classList.add('syncing');
-    el.title = 'Conectando a Firebase…';
-    if (txt) txt.textContent = 'Conectando';
-  } else if (s.pending) {
-    dot.classList.add('syncing');
-    el.title = 'Subiendo cambios a la nube…';
-    if (txt) txt.textContent = 'Subiendo';
+    txt = '';
   } else if (s.connected && s.error) {
-    dot.classList.add('err');
-    el.title = 'Error de nube: ' + s.error;
-    if (txt) { txt.textContent = 'Error'; txt.classList.add('alerta'); }
-  } else if (s.connected) {
-    dot.classList.add('ok');
-    el.title = 'Conectado como ' + (s.user || 'sesión') + (s.lastSync ? ' · última sinc: ' + fmtMs(s.lastSync) : '');
-  } else if (s.ready) {
-    el.title = 'SIN SESIÓN: este equipo no comparte datos. Entra en Ajustes → Nube.';
-    if (txt) { txt.textContent = 'Sin sesión'; txt.classList.add('alerta'); }
-  } else if (s.error) {
-    dot.classList.add('err');
-    el.title = 'Aviso de nube: ' + s.error;
-    if (txt) { txt.textContent = 'Error'; txt.classList.add('alerta'); }
+    txt = 'Hay un problema al sincronizar. Toca aquí para revisarlo.'; aviso = true;
+  } else if (!s.connected && s.ready) {
+    txt = '<b>Este equipo NO está compartiendo datos.</b> El enlace solo comparte la app; ' +
+      'los datos se comparten con la cuenta. Toca aquí para entrar o crearla.';
+  } else if (!s.ready && s.error) {
+    txt = 'Problema con la nube. Toca aquí para revisarlo.'; aviso = true;
+  }
+  if (txt) {
+    ban.innerHTML = txt;
+    ban.className = 'sync-banner' + (aviso ? ' aviso' : '');
+    ban.hidden = false;
   } else {
-    el.title = 'Modo local activo';
+    ban.hidden = true;
+    ban.innerHTML = '';
   }
 }
 
@@ -2843,6 +2871,12 @@ if (window.Cloud && Cloud.configured()) {
   Cloud.init().then(updateCloudStatus).catch(function () { updateCloudStatus(); });
 }
 document.addEventListener('click', function (e) {
+  var banner = e.target.closest('#syncBanner');
+  if (banner) {
+    location.hash = '#/ajustes';
+    if (window.Cloud) Cloud.init().then(function () { renderCloudBox(); }).catch(function () { renderCloudBox(); });
+    return;
+  }
   var pill = e.target.closest('#cloudStatus');
   if (pill && window.Cloud) {
     var s = Cloud.status();
