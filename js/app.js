@@ -2414,6 +2414,31 @@ function fmtMs(ms) {
   return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
+/* ¿El texto escrito es una dirección de correo con forma válida? */
+function correoValido(e) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e || '').trim());
+}
+
+/* Firebase dice "correo o contraseña incorrectos" cuando la cuenta aún no
+   existe, que es un callejón sin salida para quien no lo sabe. Aquí se
+   aprovecha ese caso para ofrecer crearla sin salir de la pantalla. */
+function ofrecerCrearCuenta(email, pass) {
+  confirmBox('Ese correo todavía no tiene cuenta en la nube',
+    'Firebase respondió "correo o contraseña incorrectos" porque la cuenta ' + email +
+    ' todavía no existe en la nube. ¿La creo ahora con la contraseña que escribiste? ' +
+    'Si ya tenías cuenta creada en el otro equipo, cancela y revisa que el correo y la contraseña ' +
+    'sean EXACTAMENTE los mismos que allí.',
+    function () {
+      Cloud.signUp(email, pass).then(function () {
+        toast('Cuenta creada y conectada');
+        renderCloudBox();
+      }).catch(function () {
+        toast(Cloud.status().error || 'No se pudo crear la cuenta');
+        renderCloudBox();
+      });
+    }, 'Sí, crear la cuenta', false);
+}
+
 /* Versión mostrada en la cabecera: una sola fuente de verdad. */
 function verApp() {
   var el = document.querySelector('.app-ver');
@@ -2532,8 +2557,9 @@ function renderCloudBox() {
       '</div>' +
       '<div class="btnrow"><button class="btn ghost sm" data-act="cloud-logout">Cerrar sesión</button></div>';
   } else if (s.ready) {
-    h += '<p class="hint">Para que el celular y la PC vean los mismos datos, entra con <b>una sola cuenta</b> en los dos. ' +
-      'Si todavía no tienes cuenta, créala aquí abajo (sirve cualquier correo y una contraseña de 6 caracteres o más).</p>' +
+    h += '<p class="hint">Para que el celular y la PC vean los mismos datos, usa <b>una sola cuenta</b> en los dos equipos:</p>' +
+      '<p class="hint">· <b>Primera vez</b> (la cuenta todavía no existe): escribe tu correo y una contraseña de 6 caracteres o más, y pulsa <b>Crear cuenta</b>.<br>' +
+      '· <b>Ya tienes cuenta</b> (la creaste en el otro equipo): escribe el <b>mismo</b> correo y la <b>misma</b> contraseña, y pulsa <b>Conectar</b>.</p>' +
       '<label class="fld"><span>Correo</span><input id="clEmail" type="email" autocomplete="username" placeholder="tucorreo@gmail.com"></label>' +
       '<label class="fld"><span>Contraseña</span><input id="clPass" type="password" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></label>' +
       '<div class="btnrow">' +
@@ -2645,8 +2671,16 @@ document.addEventListener('click', function (e) {
       toast('Conectado a la nube');
       renderCloudBox();
     }).catch(function () {
-      toast(Cloud.status().error || 'No se pudo conectar');
       renderCloudBox();
+      var s = Cloud.status();
+      var sinCuenta = s.errorCode === 'auth/invalid-credential' ||
+        s.errorCode === 'auth/invalid-login-credentials' ||
+        s.errorCode === 'auth/user-not-found';
+      if (sinCuenta && correoValido(email) && pass.length >= 6) {
+        ofrecerCrearCuenta(email, pass);
+      } else {
+        toast(s.error || 'No se pudo conectar');
+      }
     });
   }
   else if (act === 'cloud-signup') {
@@ -2654,6 +2688,7 @@ document.addEventListener('click', function (e) {
     var emailS = ((emS && emS.value) || '').trim();
     var passS = (pwS && pwS.value) || '';
     if (!emailS || !passS) { toast('Escribe correo y contraseña'); return; }
+    if (!correoValido(emailS)) { toast('Ese correo no es una dirección válida. Escribe algo como tucorreo@gmail.com'); return; }
     if (passS.length < 6) { toast('La contraseña debe tener al menos 6 caracteres'); return; }
     confirmBox('Crear cuenta en la nube',
       'Se creará la cuenta ' + emailS + ' con esa contraseña. Después entra con el mismo correo y contraseña en tu celular para que los dos vean los mismos datos. ¿Continuar?',

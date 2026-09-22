@@ -12,7 +12,7 @@
    entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
-  var VERSION = 'v0.5';
+  var VERSION = 'v0.6';
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
@@ -20,7 +20,7 @@ window.Cloud = (function () {
   var COLS = ['empresas', 'equipos', 'tareas', 'repuestos', 'informes'];
 
   var st = {
-    ready: false, loading: false, user: null, lastSync: 0, error: '',
+    ready: false, loading: false, user: null, lastSync: 0, error: '', errorCode: '',
     pending: false, auto: true, live: false, merged: 0, lastMerge: 0
   };
   var fb = { app: null, auth: null, db: null, mod: null };
@@ -60,6 +60,7 @@ window.Cloud = (function () {
       user: st.user ? st.user.email : (m.email || ''),
       lastSync: st.lastSync || m.lastSync || 0,
       error: st.error,
+      errorCode: st.errorCode,
       pending: st.pending,
       auto: st.auto,
       live: st.live,
@@ -317,12 +318,12 @@ window.Cloud = (function () {
     if (!st.ready) throw new Error('Firebase no está configurado');
     try {
       var r = await fb.mod.authMod.signInWithEmailAndPassword(fb.auth, email, pass);
-      setMeta({ email: email }); st.user = r.user; st.error = '';
+      setMeta({ email: email }); st.user = r.user; st.error = ''; st.errorCode = '';
       startAuto(); startListener();
       await pull(false); emit();
       return r.user;
     } catch (e) {
-      st.error = msg(e); emit(); throw e;
+      st.error = msg(e); st.errorCode = codigo(e); emit(); throw e;
     }
   }
 
@@ -331,12 +332,12 @@ window.Cloud = (function () {
     if (!st.ready) throw new Error('Firebase no está configurado');
     try {
       var r = await fb.mod.authMod.createUserWithEmailAndPassword(fb.auth, email, pass);
-      setMeta({ email: email }); st.user = r.user; st.error = '';
+      setMeta({ email: email }); st.user = r.user; st.error = ''; st.errorCode = '';
       startAuto(); startListener();
       await pull(false); emit();
       return r.user;
     } catch (e) {
-      st.error = msg(e); emit(); throw e;
+      st.error = msg(e); st.errorCode = codigo(e); emit(); throw e;
     }
   }
 
@@ -359,12 +360,22 @@ window.Cloud = (function () {
   function syncNow() { return pull(false); }
 
   /* ---------- mensajes de error legibles ---------- */
-  function msg(e) {
+  /* Código de error de Firebase (para decidir qué ofrecer después). */
+  function codigo(e) {
     var c = (e && e.code) || '';
+    if (!c && e && e.message) {
+      var m = String(e.message).match(/\((auth\/[a-z-]+)\)/i);
+      if (m) c = m[1];
+    }
+    return c;
+  }
+
+  function msg(e) {
+    var c = codigo(e);
     var map = {
-      'auth/invalid-credential': 'Correo o contraseña incorrectos',
-      'auth/wrong-password': 'Contraseña incorrecta',
-      'auth/invalid-login-credentials': 'Correo o contraseña incorrectos',
+      'auth/invalid-credential': 'Ese correo no tiene cuenta en la nube todavía (o la contraseña no coincide). Si es la primera vez, pulsa "Crear cuenta".',
+      'auth/wrong-password': 'Contraseña incorrecta. Revisa que sea exactamente la misma que usaste en el otro equipo.',
+      'auth/invalid-login-credentials': 'Ese correo no tiene cuenta en la nube todavía (o la contraseña no coincide). Si es la primera vez, pulsa "Crear cuenta".',
       'auth/user-not-found': 'Ese correo no tiene cuenta todavía: usa "Crear cuenta" para crearla',
       'auth/email-already-in-use': 'Ese correo ya tiene cuenta: usa "Conectar" en vez de "Crear cuenta"',
       'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres',
