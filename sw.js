@@ -1,5 +1,5 @@
 /* Servitech - service worker (activo solo en https) */
-var CACHE = 'servitech-v0.2';
+var CACHE = 'servitech-v0.3';
 var ASSETS = [
   './',
   './index.html',

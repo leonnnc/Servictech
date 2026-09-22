@@ -3,6 +3,11 @@ pruebas/
 *.log
 server-err.log
 
+# datos locales y respaldos (nunca publicar: contienen datos de clientes)
+respaldos/
+capturas/
+diagnostico-*.md
+
 # sistema
 Thumbs.db
 .DS_Store

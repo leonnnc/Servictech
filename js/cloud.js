@@ -142,6 +142,8 @@ window.Cloud = (function () {
       var rUpd = Number(d.updatedAt || 0);
       var lUpd = Number((Store.db.meta || {}).updatedAt || 0);
       if (force || rUpd > lUpd) {
+        // Guardar una copia de lo que había antes de reemplazarlo (recuperable en Ajustes)
+        try { localStorage.setItem('servitech_prev_db_v1', JSON.stringify({ cuando: Date.now(), db: Store.db })); } catch (e) { }
         Store.importJSON(JSON.stringify(d.payload), true);
         st.lastSync = Date.now(); setMeta({ lastSync: st.lastSync }); st.error = ''; emit();
         var activeTag = document.activeElement && document.activeElement.tagName;

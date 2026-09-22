@@ -2361,6 +2361,8 @@ function vAjustes() {
   setTitle('Ajustes');
   setNew(null);
   var m = Store.db.meta;
+  var prev = null;
+  try { prev = JSON.parse(localStorage.getItem('servitech_prev_db_v1') || 'null'); } catch (e) { prev = null; }
   var html = '<div class="stack">' +
     '<form class="card pad" data-f="aj">' +
     '<h2 class="sec">Datos por defecto</h2>' +
@@ -2374,11 +2376,14 @@ function vAjustes() {
     '<div class="btnrow">' +
     '<button class="btn secondary sm" data-act="export">Descargar respaldo</button>' +
     '<label class="btn ghost sm">Importar respaldo<input type="file" id="fileImp" accept=".json,application/json" hidden></label>' +
+    (prev && prev.db ? '<button class="btn ghost sm" data-act="restore-prev">Restaurar copia anterior' + (prev.cuando ? ' (' + fmtMs(prev.cuando) + ')' : '') + '</button>' : '') +
     '<button class="btn danger sm" data-act="reset">Borrar todos los datos</button>' +
-    '</div></div>' +
+    '</div>' +
+    (prev && prev.db ? '<p class="hint">La copia anterior es lo que este dispositivo tenía antes de la última bajada desde la nube.</p>' : '') +
+    '</div>' +
     '<div class="card pad"><h2 class="sec">Instalar en el celular</h2>' +
     '<p class="hint">Cuando la app esté publicada en internet: ábrela en Chrome en tu Android, toca el menú (⋮) y elige "Agregar a pantalla de inicio". Quedará un ícono que la abre a pantalla completa, como una app normal, incluso sin conexión.</p></div>' +
-    '<p class="hint" style="text-align:center">Servitech v0.2 · datos locales en este dispositivo</p>' +
+    '<p class="hint" style="text-align:center">Servitech v0.3 · datos locales en este dispositivo</p>' +
     '</div>';
   $('#view').innerHTML = html;
   var fi = $('#fileImp');
@@ -2419,9 +2424,11 @@ function updateCloudStatus() {
     if (s.pending || s.loading) {
       dot.classList.add('syncing');
       el.title = 'Sincronizando con Firebase…';
-    } else if (s.connected || s.ready) {
+    } else if (s.connected) {
       dot.classList.add('ok');
-      el.title = 'Conectado a Firebase (' + (s.user || 'automático') + ') · ' + (s.lastSync ? 'Última sinc: ' + fmtMs(s.lastSync) : 'Sincronizado');
+      el.title = 'Cuenta conectada (' + (s.user || 'sesión') + ') · ' + (s.lastSync ? 'Última sinc: ' + fmtMs(s.lastSync) : 'Sincronizado');
+    } else if (s.ready) {
+      el.title = 'Firebase listo, sin sesión · entra en Ajustes → Nube';
     } else if (s.error) {
       dot.classList.add('err');
       el.title = 'Aviso de nube: ' + s.error;
@@ -2436,14 +2443,29 @@ function renderCloudBox() {
   var box = $('#cloudBox');
   if (!box || !window.Cloud) return;
   var s = Cloud.status();
-  var h = '<div class="cloud-on"><span class="dot ' + (s.connected || s.ready ? 'ok' : (s.error ? 'err' : '')) + '"></span>' +
-    '<div><b>' + (s.connected || s.ready ? 'Sincronización interna activa' : 'Conectando a Firebase…') + '</b>' +
-    '<div class="s">' + esc(s.project || 'servictech-84304') + (s.lastSync ? ' · Sincronizado ' + fmtMs(s.lastSync) : '') + '</div></div></div>' +
-    '<p class="hint">Tus datos de empresas, tareas, repuestos e informes se respaldan y sincronizan automáticamente en segundo plano.</p>' +
-    '<div class="btnrow">' +
-    '<button class="btn secondary sm" data-act="cloud-sync">Sincronizar ahora</button>' +
-    '<button class="btn ghost sm" data-act="cloud-push">Subir a la nube</button>' +
-    '</div>';
+  var titulo = s.connected ? 'Cuenta conectada' : (s.ready ? 'Sin sesión en la nube' : 'Conectando a Firebase…');
+  var sub = s.connected
+    ? esc(s.user || 'sesión activa') + ' · ' + esc(s.project || 'servictech-84304')
+    : 'Este dispositivo guarda sus datos por separado';
+  var h = '<div class="cloud-on"><span class="dot ' + (s.connected ? 'ok' : (s.error ? 'err' : '')) + '"></span>' +
+    '<div><b>' + titulo + '</b>' +
+    '<div class="s">' + sub + (s.lastSync ? ' · Sincronizado ' + fmtMs(s.lastSync) : '') + '</div></div></div>';
+  if (s.connected) {
+    h += '<p class="hint">Tus datos de empresas, tareas, repuestos e informes se sincronizan con esta cuenta. Usa la misma cuenta en tu otro equipo para ver lo mismo.</p>' +
+      '<div class="btnrow">' +
+      '<button class="btn secondary sm" data-act="cloud-sync">Sincronizar ahora</button>' +
+      '<button class="btn ghost sm" data-act="cloud-push">Subir este dispositivo</button>' +
+      '<button class="btn ghost sm" data-act="cloud-pull">Bajar desde la nube</button>' +
+      '</div>' +
+      '<div class="btnrow"><button class="btn ghost sm" data-act="cloud-logout">Cerrar sesión</button></div>';
+  } else if (s.ready) {
+    h += '<p class="hint">Entra con el correo y la contraseña de tu cuenta para unir este dispositivo con el resto. Antes de bajar datos de la nube, descarga un respaldo.</p>' +
+      '<label class="fld"><span>Correo</span><input id="clEmail" type="email" autocomplete="username" placeholder="tucorreo@gmail.com"></label>' +
+      '<label class="fld"><span>Contraseña</span><input id="clPass" type="password" autocomplete="current-password" placeholder="Tu contraseña"></label>' +
+      '<div class="btnrow">' +
+      '<button class="btn primary sm" data-act="cloud-connect">Conectar</button>' +
+      '</div>';
+  }
   if (s.error) h += '<p class="hint err">' + esc(s.error) + '</p>';
   box.innerHTML = h;
 }
@@ -2557,9 +2579,22 @@ document.addEventListener('click', function (e) {
     Cloud.push(false).then(function () { renderCloudBox(); });
   }
   else if (act === 'cloud-pull') {
-    confirmBox('Bajar desde la nube', 'Los datos de este dispositivo se reemplazarán por los de la nube.', function () {
+    confirmBox('Bajar desde la nube', 'Los datos de este dispositivo se reemplazarán por los de la nube. Se guardará una copia de lo que tienes ahora, recuperable con "Restaurar copia anterior".', function () {
       Cloud.pull(true).then(function () { renderCloudBox(); });
     }, 'Bajar');
+  }
+  else if (act === 'restore-prev') {
+    var prev = null;
+    try { prev = JSON.parse(localStorage.getItem('servitech_prev_db_v1') || 'null'); } catch (e) { prev = null; }
+    if (!prev || !prev.db) { toast('No hay copia anterior guardada'); return; }
+    confirmBox('Restaurar copia anterior', 'Se reemplazarán los datos actuales por la copia guardada' + (prev.cuando ? ' el ' + fmtMs(prev.cuando) : '') + '.', function () {
+      try {
+        Store.importJSON(JSON.stringify(prev.db));
+        toast('Copia anterior restaurada');
+        location.hash = '#/ajustes';
+        route();
+      } catch (e) { toast('No se pudo restaurar la copia'); }
+    }, 'Restaurar');
   }
   else if (act === 'export') {
     var blob = new Blob([Store.exportJSON()], { type: 'application/json' });
@@ -2713,12 +2748,13 @@ document.addEventListener('click', function (e) {
   var pill = e.target.closest('#cloudStatus');
   if (pill && window.Cloud) {
     var s = Cloud.status();
-    if (s.connected || s.ready) {
-      toast('Nube conectada · ' + (s.lastSync ? 'Sincronizado ' + fmtMs(s.lastSync) : 'Sincronizado'));
+    if (s.connected) {
+      toast('Cuenta conectada · ' + (s.lastSync ? 'Sincronizado ' + fmtMs(s.lastSync) : 'Sincronizado'));
       Cloud.syncNow();
     } else {
-      toast('Conectando a Firebase en segundo plano…');
-      Cloud.init().then(function () { Cloud.syncNow(); });
+      toast('Entra a la nube con tu cuenta en Ajustes');
+      location.hash = '#/ajustes';
+      Cloud.init().then(function () { renderCloudBox(); });
     }
   }
 });
