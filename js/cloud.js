@@ -12,7 +12,7 @@
    entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
-  var VERSION = 'v0.6';
+  var VERSION = 'v0.7';
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
@@ -341,6 +341,51 @@ window.Cloud = (function () {
     }
   }
 
+  /* Un solo camino, sin adivinar qué botón pulsar:
+       1) intenta entrar;
+       2) si Firebase responde "correo o contraseña incorrectos", prueba a
+          CREAR la cuenta con esos mismos datos;
+       3) si al crearla dice que el correo ya existe, entonces el problema
+          es la contraseña, y eso sí se puede explicar claro.
+
+     Firebase devuelve el MISMO error genérico (invalid-credential) tanto si
+     la cuenta no existe como si la contraseña está mal; intentar crearla es
+     la única forma de distinguir los dos casos.                        */
+  async function connect(email, pass) {
+    await init();
+    if (!st.ready) throw new Error('Firebase no está configurado');
+    try {
+      var r = await fb.mod.authMod.signInWithEmailAndPassword(fb.auth, email, pass);
+      setMeta({ email: email }); st.user = r.user; st.error = ''; st.errorCode = '';
+      startAuto(); startListener();
+      await pull(false); emit();
+      return { accion: 'conectado' };
+    } catch (e) {
+      var c = codigo(e);
+      if (c !== 'auth/invalid-credential' && c !== 'auth/invalid-login-credentials' && c !== 'auth/user-not-found') {
+        st.error = msg(e); st.errorCode = c; emit(); throw e;
+      }
+    }
+    try {
+      var r2 = await fb.mod.authMod.createUserWithEmailAndPassword(fb.auth, email, pass);
+      setMeta({ email: email }); st.user = r2.user; st.error = ''; st.errorCode = '';
+      startAuto(); startListener();
+      await pull(false); emit();
+      return { accion: 'creado' };
+    } catch (e2) {
+      var c2 = codigo(e2);
+      if (c2 === 'auth/email-already-in-use') {
+        var err = new Error('cuenta-existe');
+        err.code = 'cuenta-existe';
+        st.error = 'La cuenta ' + email + ' ya existe en la nube, pero la contraseña no coincide. Escribe la contraseña EXACTA con la que la creaste.';
+        st.errorCode = 'cuenta-existe';
+        emit();
+        throw err;
+      }
+      st.error = msg(e2); st.errorCode = c2; emit(); throw e2;
+    }
+  }
+
   async function signOut() {
     try { await init(); if (fb.auth) await fb.mod.authMod.signOut(fb.auth); } catch (e) { }
     st.user = null; st.error = ''; stopAuto(); stopListener(); setMeta({ email: '' }); emit();
@@ -475,7 +520,7 @@ window.Cloud = (function () {
   window.addEventListener('online', function () { if (st.user) pull(false); });
 
   return {
-    init: init, signIn: signIn, signUp: signUp, signOut: signOut,
+    init: init, signIn: signIn, signUp: signUp, connect: connect, signOut: signOut,
     push: push, pull: pull, syncNow: syncNow,
     status: status, onChange: onChange, notifyChange: notifyChange,
     configured: configured, setConfig: setConfig, clearConfig: clearConfig,
