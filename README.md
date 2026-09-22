@@ -51,7 +51,14 @@ powershell -ExecutionPolicy Bypass -File pruebas\verificar-sincronizacion.ps1
 
 ### Si un equipo no sincroniza (revisión en 1 minuto)
 
-En la barra superior, junto al icono de nube:
+> **Abrir el mismo enlace no basta.** El enlace comparte la *app*; los *datos*
+> los comparte la **cuenta**. Dos equipos con el mismo enlace pero sin sesión
+> iniciada son dos islas: cada navegador guarda en su propio almacén y no se
+> hablan entre sí, aunque la app se vea idéntica. Si tuviste que pasar los datos
+> a mano con un respaldo JSON, esa es la señal: no había nube conectada.
+
+Si un equipo no comparte datos, ahora lo avisa con una **franja roja** debajo de
+la cabecera, en cualquier pantalla. Además, junto al icono de nube:
 
 - **etiqueta roja "Sin sesión"** → ese equipo no comparte nada. Entra en
   Ajustes → Nube con la misma cuenta que usas en el otro.
