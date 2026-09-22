@@ -88,7 +88,7 @@ powershell -ExecutionPolicy Bypass -File pruebas\verificar-sincronizacion.ps1
 
 El script crea un usuario de prueba, escribe y lee un documento con la misma
 forma que usa la app, e intenta (debiendo fallar) tocar datos de otro usuario.
-Si las reglas están bien, verás `RESULTADO: 3 correctas, 0 fallidas`.
+Si las reglas están bien, verás `RESULTADO: 4 correctas, 0 fallidas`.
 
 
 Con esto, **solo tu usuario** puede leer y escribir tus datos; nadie más, aunque conozca el enlace.
