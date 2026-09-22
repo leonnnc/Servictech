@@ -6,7 +6,7 @@
        en segundo plano (rapido y sigue funcionando sin conexion)
    Sube CACHE cada vez que cambies js/css para forzar la actualizacion.
 */
-var CACHE = 'servitech-v0.4';
+var CACHE = 'servitech-v0.5';
 var ASSETS = [
   './',
   './index.html',
@@ -15,7 +15,7 @@ var ASSETS = [
   './js/cloud.js',
   './js/store.js',
   './js/app.js',
-  './assets/manifest.webmanifest',
+  './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png'
 ];

@@ -74,7 +74,11 @@ Abre `http://127.0.0.1:8765` en el navegador.
 index.html            shell de la app (SPA)
 css/app.css           estilos (tema moderno)
 js/store.js           capa de datos (localStorage)
+js/cloud.js           sincronización con Firebase (auth + Firestore)
+js/firebase-config.js configuración pública del proyecto Firebase
 js/app.js             vistas, rutas y lógica
 sw.js                 service worker (offline; solo en https)
-assets/               manifest e íconos
+manifest.webmanifest  manifest de la PWA (en la raíz, para que sus rutas resuelvan bien)
+firestore.rules       reglas de seguridad de Firestore (deben estar publicadas)
+assets/               íconos
 ```
