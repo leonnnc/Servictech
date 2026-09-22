@@ -2552,7 +2552,10 @@ function renderCloudBox() {
       '<button class="btn primary sm" data-act="cloud-connect">Conectar o crear cuenta</button>' +
       '</div>';
   }
-  if (s.error) h += '<p class="hint err">' + esc(s.error) + '</p>';
+  if (s.error) {
+    h += '<p class="hint err">' + esc(s.error) + '</p>';
+    if (s.connected) h += '<div class="btnrow"><button class="btn secondary sm" data-act="cloud-retry">Reintentar ahora</button></div>';
+  }
   if (Cloud.diagnosticsText) {
     h += '<details class="diag"><summary>Diagnóstico de sincronización</summary>' +
       '<pre class="diag-pre">' + esc(Cloud.diagnosticsText()) + '</pre>' +
@@ -2677,6 +2680,13 @@ document.addEventListener('click', function (e) {
   else if (act === 'cloud-sync') {
     Cloud.syncNow().then(function (ok) {
       toast(ok ? 'Sincronizado' : (Cloud.status().error || 'No se pudo sincronizar'));
+      renderCloudBox();
+    });
+  }
+  else if (act === 'cloud-retry') {
+    b.disabled = true;
+    Cloud.retry().then(function (ok) {
+      toast(ok ? 'Sincronizado' : (Cloud.status().error || 'Sigue sin poder sincronizar'));
       renderCloudBox();
     });
   }

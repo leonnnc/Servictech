@@ -12,7 +12,7 @@
    entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
-  var VERSION = 'v0.7';
+  var VERSION = 'v0.8';
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
@@ -89,11 +89,15 @@ window.Cloud = (function () {
           fb.db = fsMod.initializeFirestore(fb.app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
         } catch (e) { fb.db = fsMod.getFirestore(fb.app); }
         st.ready = true; st.loading = false;
-        authMod.onAuthStateChanged(fb.auth, function (u) {
+        authMod.onAuthStateChanged(fb.auth, async function (u) {
           st.user = (u && !u.isAnonymous) ? u : null;
           if (st.user) {
             setMeta({ email: st.user.email || '' });
             st.error = '';
+            // Sin esto, la primera petición puede salir antes de que el token
+            // de sesión llegue a Firestore y responder "permiso denegado"
+            // aunque las reglas estén correctas.
+            await refrescarToken();
             startAuto();
             startListener();
             pull(false);
@@ -120,6 +124,17 @@ window.Cloud = (function () {
 
   /* ---------- referencia al documento ---------- */
   function docRef() { return fb.mod.fsMod.doc(fb.db, 'users', st.user.uid, 'app', 'main'); }
+
+  /* Fuerza un token fresco ANTES de tocar Firestore. Si la primera lectura se
+     lanza sin token, Firestore responde "permiso denegado" sin que las reglas
+     tengan nada que ver, y el aviso se queda fijo en pantalla. */
+  async function refrescarToken() {
+    try {
+      if (fb.auth && fb.mod && fb.mod.authMod && fb.mod.authMod.getIdToken && fb.auth.currentUser) {
+        await fb.mod.authMod.getIdToken(fb.auth.currentUser, true);
+      }
+    } catch (e) { }
+  }
 
   /* ---------- combinar dos bases (unión por id, gana lo remoto) ---------- */
   function mergeDB(local, remote) {
@@ -179,11 +194,12 @@ window.Cloud = (function () {
       Store.db.meta.syncedAt = upd;
       Store.save(true, true);
       st.lastSync = upd; setMeta({ lastSync: upd });
-      st.error = ''; st.pending = false; emit();
+      st.error = ''; st.pending = false; resetReintento(); emit();
       if (!silent) toast('Datos subidos a la nube');
       return true;
     } catch (e) {
       st.pending = false; st.error = msg(e); emit();
+      fallo(e);
       if (!silent) toast('No se pudo subir: ' + st.error);
       return false;
     } finally {
@@ -282,12 +298,41 @@ window.Cloud = (function () {
     if (!st.user) return false;
     try {
       var snap = await fb.mod.fsMod.getDoc(docRef());
+      resetReintento();
       return await applySnap(snap, !!force);
     } catch (e) {
       st.error = msg(e); emit();
+      fallo(e);
       return false;
     }
   }
+
+  /* ---------- reintentos cortos ----------
+     Un fallo puntual (por ejemplo el token aún no propagado) se recupera
+     en segundos. Antes había que esperar hasta 60 s mirando el error. */
+  var retryTimer = null, retryN = 0;
+  function fallo(e) { if (esTransitorio(e)) planReintento(); }
+  function esTransitorio(e) {
+    var c = codigo(e);
+    return c === 'permission-denied' || c === 'unauthenticated' ||
+      c === 'unavailable' || c === 'deadline-exceeded' || c === 'failed-precondition';
+  }
+  function planReintento() {
+    if (!st.user || retryN >= 3) return;
+    var ms = [1500, 5000, 15000][retryN] || 15000;
+    retryN++;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = setTimeout(function () {
+      retryTimer = null;
+      if (st.user) pull(false);
+    }, ms);
+  }
+  function resetReintento() {
+    retryN = 0;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  }
+  /* Reintento a mano desde el botón de la pantalla. */
+  function retry() { resetReintento(); return pull(false); }
 
   /* ---------- escucha en tiempo real ---------- */
   function startListener() {
@@ -301,6 +346,7 @@ window.Cloud = (function () {
         applySnap(snap, false).catch(function () { });
       }, function (err) {
         st.error = msg(err); emit();
+        fallo(err);
       });
       st.live = true; emit();
     } catch (e) {
@@ -319,6 +365,7 @@ window.Cloud = (function () {
     try {
       var r = await fb.mod.authMod.signInWithEmailAndPassword(fb.auth, email, pass);
       setMeta({ email: email }); st.user = r.user; st.error = ''; st.errorCode = '';
+      await refrescarToken();
       startAuto(); startListener();
       await pull(false); emit();
       return r.user;
@@ -333,6 +380,7 @@ window.Cloud = (function () {
     try {
       var r = await fb.mod.authMod.createUserWithEmailAndPassword(fb.auth, email, pass);
       setMeta({ email: email }); st.user = r.user; st.error = ''; st.errorCode = '';
+      await refrescarToken();
       startAuto(); startListener();
       await pull(false); emit();
       return r.user;
@@ -357,6 +405,7 @@ window.Cloud = (function () {
     try {
       var r = await fb.mod.authMod.signInWithEmailAndPassword(fb.auth, email, pass);
       setMeta({ email: email }); st.user = r.user; st.error = ''; st.errorCode = '';
+      await refrescarToken();
       startAuto(); startListener();
       await pull(false); emit();
       return { accion: 'conectado' };
@@ -369,6 +418,7 @@ window.Cloud = (function () {
     try {
       var r2 = await fb.mod.authMod.createUserWithEmailAndPassword(fb.auth, email, pass);
       setMeta({ email: email }); st.user = r2.user; st.error = ''; st.errorCode = '';
+      await refrescarToken();
       startAuto(); startListener();
       await pull(false); emit();
       return { accion: 'creado' };
@@ -429,7 +479,7 @@ window.Cloud = (function () {
       'auth/configuration-not-found': 'Authentication aún no está habilitada en el proyecto',
       'auth/invalid-api-key': 'La apiKey no corresponde a este proyecto',
       'auth/network-request-failed': 'Sin conexión a internet',
-      'permission-denied': 'Permiso denegado: publica las reglas de Firestore (Firebase → Firestore → Reglas)',
+      'permission-denied': 'Permiso denegado al leer tus datos. Si ya publicaste las reglas en Firebase → Firestore → Reglas, pulsa "Reintentar": suele ser un fallo pasajero de la sesión.',
       'unavailable': 'Firestore no disponible (verifica que creaste la base de datos)',
       'not-found': 'No se encontró la base de datos de Firestore',
       'failed-precondition': 'Firestore necesita crearse o habilitarse'
@@ -521,7 +571,7 @@ window.Cloud = (function () {
 
   return {
     init: init, signIn: signIn, signUp: signUp, connect: connect, signOut: signOut,
-    push: push, pull: pull, syncNow: syncNow,
+    push: push, pull: pull, syncNow: syncNow, retry: retry,
     status: status, onChange: onChange, notifyChange: notifyChange,
     configured: configured, setConfig: setConfig, clearConfig: clearConfig,
     setAuto: setAuto, meta: meta,
