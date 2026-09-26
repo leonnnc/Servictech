@@ -1,19 +1,21 @@
-# Servitech v1.1 — App de soporte técnico
+# Servitech v1.4 — App de soporte técnico
 
-PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de tareas, costos de servicios, repuestos e informes con firma y PDF**.
+PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de servicios, costos de servicios, repuestos e informes con firma y PDF**.
 
 Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guardados en el propio dispositivo (localStorage), sincronización transparente con Firebase Cloud Firestore y respaldo manual en JSON.
 
 ## Funciones
 
 - **Portada** tipo carpeta e inicio "En servicio" con las empresas con trabajo abierto y resumen del día.
-- **Empresas**: ficha editable (razón social, RUC, dirección, contacto, notas) e historial. El **correo es obligatorio**: es el destinatario del informe al cerrar la jornada.
+- **Empresas**: ficha editable (razón social, RUC, dirección, contacto, notas) e historial. El **correo es obligatorio** en la ficha, como dato de contacto del cliente.
 - **Equipos**: registrados por empresa (tipo, marca, modelo, N° de serie, ubicación).
-- **Tareas**: agrupadas por fecha/jornada con estados (Pendiente, En curso, Esperando repuestos, Completada, Cancelada), novedad, trabajo realizado y solución.
-- **Costos**: listado completo de tareas con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de tareas seleccionadas y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**.
+- **Servicios**: banco de servicios con estados (Pendiente, En curso, Esperando repuestos, Completado, Cancelado), novedad, trabajo realizado y solución. Se pueden ver **📅 por día** (los servicios de la misma fecha se juntan en un solo bloque con su subtotal y el enlace al **resumen del día**) o **🗓️ por mes** (el mes se junta y se separa por empresa, con la opción de **juntar los servicios del mes en un solo informe por empresa** cuando hay 2 o más).
+- **Resumen en pantalla** (`#/resumen`): vista previa imprimible que junta los servicios de un día o de un mes (con o sin empresa) en un solo listado, con subtotal por día y total del período. Desde ahí se emite el informe oficial.
+- **Costos**: listado completo de servicios con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de los servicios seleccionados y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**.
 - **Repuestos / compras**: estados *Por comprar → Pedido → Recibido → Cambiado*.
-- **Informes de servicio**: emisión consolidada por empresa y fecha de jornada, numeración correlativa anual, repuestos usados, **monto del servicio** (se propone la suma de los precios de la jornada desde Costos y se puede ajustar a mano; aparece en el PDF, en la vista del informe y en el texto para WhatsApp), **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp.
-- **Conformidad del cliente por enlace**: se le manda un correo con un enlace único; el cliente confirma (Conforme / No conforme), deja su observación y **firma desde su propio celular**. La respuesta vuelve sola al informe y tú la revisas y cierras.
+- **Informes de servicio**: emisión consolidada por empresa y fecha de jornada **o por mes completo** (un solo informe por empresa con todos los servicios de ese mes), numeración correlativa anual, repuestos usados, **monto del servicio** (se propone la suma de los precios de la jornada desde Costos y se puede ajustar a mano; aparece en el PDF, en la vista del informe y en el texto para WhatsApp), **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp.
+- **Conformidad del servicio, en el sitio**: al cerrar el informe el cliente está delante. Se marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**, se escribe la observación si hace falta y el cliente **firma con el dedo** en el celular (obligatorio), además de su nombre y cargo. Todo eso queda en el informe y en el PDF.
+- **Centro de soluciones**: cuando el cliente firma *No conforme* o deja una observación, se abre un caso con su texto, estado (*Pendiente* / *Resuelto*), tu nota de solución y la fecha de cierre. Se entra desde la portada (*Quejas por resolver*).
 - **Ajustes**: sincronización Firebase con **inicio de sesión por correo/contraseña** (usa la misma cuenta en todos tus equipos para ver los mismos datos), botones *Subir este dispositivo* y *Bajar desde la nube*, copia automática de seguridad antes de reemplazar datos, respaldo/restauración JSON, nombre del técnico y moneda.
 
 ## Sincronización entre la PC y el celular
@@ -50,6 +52,39 @@ porque guarda capturas y datos de clientes):
 powershell -ExecutionPolicy Bypass -File pruebas\verificar-sincronizacion.ps1
 ```
 
+El script crea un usuario de prueba desechable y hace **7 comprobaciones**: 4 de
+sincronización (crear cuenta, escribir, leer y que no se pueda tocar los datos de
+otro usuario) y 3 de que las zonas públicas quedan cerradas (que sin sesión no se
+lean los datos del técnico, y que las antiguas rutas `envios/` y `respuestas/` del
+enlace de conformidad respondan **403**, porque esa función ya no existe).
+
+- Si fallan los pasos 2 y 3 (datos del técnico), es que las reglas de Firestore
+  todavía no están publicadas: ver paso 5 de
+  [`firebase-configuracion.md`](firebase-configuracion.md).
+- Si fallan los pasos 5 a 7, quedaron publicadas las reglas viejas: publica otra vez
+  [`firestore.rules`](firestore.rules), que ya solo abre `users/{uid}/app/**`.
+- Si todo pasa, el script borra los documentos de prueba. Si algo falla, los deja
+  para revisarlos (el usuario de prueba se borra desde Firebase → Authentication).
+
+Y dos comprobaciones rápidas —de la conformidad y de los servicios— **sin navegador
+ni nube**: cargan `store.js` y `app.js` reales en un entorno mínimo y ejecutan las
+vistas y el guardado.
+
+```bash
+node pruebas\test-conformidad.js
+node pruebas\test-servicios-mes.js
+```
+
+`test-conformidad.js` hace **51 comprobaciones**: que el formulario pide la firma del
+cliente en el sitio (nombre y firma obligatorios, monto mayor que 0), que *No conforme*
+abre un caso en el centro de soluciones, que las vistas se dibujan sin errores, que los
+informes antiguos que quedaron pendientes se siguen abriendo, y que **no queda rastro**
+del circuito por enlace (ni botones, ni funciones, ni zonas públicas en las reglas).
+
+`test-servicios-mes.js` hace **58 comprobaciones** del agrupado por día y por mes, del
+resumen en pantalla y del informe consolidado del mes (un informe por empresa, que los
+servicios del mes queden Completados y que el código del informe sea correlativo).
+
 ### Si un equipo no sincroniza (revisión en 1 minuto)
 
 > **Abrir el mismo enlace no basta.** El enlace comparte la *app*; los *datos*
@@ -82,23 +117,31 @@ Dos cosas que conviene comparar entre los dos equipos:
 Un equipo puede seguir funcionando sin conexión: lo que haga se sube al
 reconectar.
 
-## Conformidad del cliente (firma por enlace)
+## Conformidad del servicio (en el sitio)
 
-En lugar de firmar en tu celular, el cliente confirma el servicio desde el suyo.
+La conformidad se recoge siempre **en el sitio**, con el cliente delante y firmando en
+tu celular. No hay enlaces ni páginas públicas: así el servicio queda cerrado en la
+misma visita y no queda nada pendiente.
 
-1. En el informe, **Pedir conformidad al cliente** → se le manda un correo con un enlace único.
-2. El cliente abre el enlace, ve el resumen del servicio (trabajo realizado y monto), marca *Conforme* o *No conforme*, escribe su observación y firma con el dedo.
-3. Su respuesta entra a Firestore y el informe pasa a **Conformidad recibida** (se detecta solo al abrir el informe).
-4. Revisas y pulsas **Revisar y cerrar informe**: la conformidad, la observación y la firma pasan al informe, quedan en el PDF y el informe figura como cerrado, con constancia del correo y la fecha.
+1. En el informe, marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**.
+2. Si hace falta, escribe la **observación** (obligatoria cuando es *No conforme*).
+3. Escribe el **nombre y cargo del responsable** del cliente y pasa el celular para que
+   **firme con el dedo**. La firma del cliente es obligatoria; la del técnico es opcional.
+4. Al guardar, el informe queda emitido con su número correlativo y el PDF/listado para
+   WhatsApp ya sale con la firma.
 
 Detalles que conviene saber:
 
-- **Hace falta internet** en los dos lados, y que el cliente abra el enlace en el navegador de su celular.
-- **El enlace es la llave**: es un token largo y aleatorio. Quien no lo tenga no puede leer nada, y el cliente solo puede escribir su propia respuesta, una vez.
-- **El cliente no puede escribir en tus datos**: las reglas de Firestore solo le permiten leer ese envío y crear esa respuesta. Ver [`firestore.rules`](firestore.rules).
-- **Si el endpoint de correo no está configurado**, el botón igual genera el enlace y puedes **copiarlo** para mandarlo tú por WhatsApp o correo. El circuito de firma funciona igual.
-- Si el cliente no responde, **puedes seguir firmando tú** en el informe como siempre (Editar → firmas).
-- Para que salga el correo hace falta el endpoint PHP de tu hosting: ver [`hosting-php/INSTALACION.md`](hosting-php/INSTALACION.md).
+- **No se puede guardar sin monto**: el informe exige un monto mayor que 0 (se propone
+  la suma de Costos y puedes ajustarlo).
+- **Las quejas no se pierden**: si el cliente firma *No conforme* o deja una observación,
+  se abre automáticamente un caso en el **Centro de soluciones** para resolverlo y dejar
+  constancia de qué se hizo.
+- **No hace falta internet**: la firma y el guardado funcionan sin conexión; si hay sesión
+  iniciada, todo se sube a la nube al reconectar.
+- **Informes antiguos**: los que se emitieron con la versión anterior como *Conformidad
+  pendiente* se siguen abriendo y se muestran como **PENDIENTE**; basta **Editar informe**
+  para dejar la conformidad firmada en el sitio.
 
 ## Uso local
 
@@ -118,7 +161,9 @@ Abre `http://127.0.0.1:8765` en el navegador.
 
 - `modelo-de-datos-servitech.md` — modelo de datos completo (fichas y campos).
 - `plantilla-servitech.xlsx` — plantilla de ejemplo de las fichas.
-- `hosting-php/INSTALACION.md` — cómo montar el endpoint que envía el correo de conformidad.
+- `hosting-php/INSTALACION.md` — **en desuso**: era el endpoint PHP que enviaba el correo
+  de conformidad por enlace. Ya no hace falta (la conformidad se firma en el sitio); se
+  conserva solo como referencia.
 
 ## Estructura
 
@@ -132,10 +177,10 @@ js/app.js             vistas, rutas y lógica
 sw.js                 service worker (offline; solo en https)
 manifest.webmanifest  manifest de la PWA (en la raíz, para que sus rutas resuelvan bien)
 firestore.rules       reglas de seguridad de Firestore (deben estar publicadas)
-hosting-php/          endpoint PHP de envío del correo (va a tu hosting, NO a GitHub Pages)
+hosting-php/          en desuso: era el endpoint del correo de conformidad por enlace
 assets/               íconos
 ```
 
 Nota: GitHub Pages solo sirve archivos estáticos, así que `hosting-php/` **no
-se ejecuta** ahí. Es código para subir a tu propio hosting; ver su
-`INSTALACION.md`.
+se ejecuta** ahí; y como la conformidad se firma en el sitio, ese endpoint ya no
+se usa para nada.

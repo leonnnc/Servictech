@@ -49,6 +49,46 @@ function dayLabel(isoDate) {
   return fmtDate(dIso);
 }
 
+/* ---------- períodos (día / mes) ----------
+   Un "servicio" pertenece a una fecha, y las fechas se pueden juntar por mes
+   para emitir un solo informe por empresa. */
+var MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+function mesValido(ym) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(ym || '')); }
+
+function mesLabel(ym) {
+  var p = String(ym || '').split('-');
+  var y = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  if (!y || !(m >= 1 && m <= 12)) return String(ym || '');
+  var n = MESES_ES[m - 1];
+  return n.charAt(0).toUpperCase() + n.slice(1) + ' ' + y;
+}
+
+/* Texto del período de un informe: mes si es consolidado, si no la fecha. */
+function periodoTexto(x) {
+  if (!x) return '';
+  if (x.periodo_mes) return mesLabel(x.periodo_mes);
+  if (x.fecha_servicio) return dayLabel(x.fecha_servicio);
+  return fmtDate((x.fecha_emision || '').slice(0, 10));
+}
+
+/* ¿Este informe ya cubre esa fecha? (por día exacto o por su mes) */
+function informeCubreFecha(inf, fecha) {
+  if (!inf || !fecha) return false;
+  if (inf.fecha_servicio && String(inf.fecha_servicio) === String(fecha)) return true;
+  if (inf.periodo_mes && String(inf.periodo_mes) === String(fecha).slice(0, 7)) return true;
+  return false;
+}
+
+/* ¿Este informe cubre ese mes? Sirve para no emitir dos veces lo mismo. */
+function informeCubreMes(inf, mes) {
+  if (!inf || !mes) return false;
+  if (inf.periodo_mes && String(inf.periodo_mes) === String(mes)) return true;
+  if (inf.fecha_servicio && String(inf.fecha_servicio).slice(0, 7) === String(mes)) return true;
+  return false;
+}
+
 var EST_TAREA = { 'Pendiente': 'warn', 'En curso': 'info', 'Esperando repuestos': 'warn2', 'Completada': 'ok', 'Cancelada': 'mute' };
 var EST_REP = { 'Por comprar': 'warn', 'Pedido': 'info', 'Recibido': 'info', 'Cambiado': 'ok' };
 var TIPOS_TAREA = ['Correctivo', 'Preventivo', 'Instalación', 'Retiro', 'Otro'];
@@ -145,12 +185,6 @@ function confirmBox(title, msg, onOk, okLabel, danger) {
 
 /* ---------- enrutador ---------- */
 function route() {
-  // Enlace público de conformidad (el que le llega al cliente por correo):
-  //   .../?c=<token>&u=<uid>
-  // Se atiende antes que nada y sin pedir sesión.
-  var pub = new URLSearchParams(location.search || '');
-  if (pub.get('c') && pub.get('u')) { vConformidadCliente(pub.get('c'), pub.get('u')); return; }
-
   var raw = location.hash || '#/intro';
   if (raw === '#' || raw === '') raw = '#/intro';
   var rest = raw.slice(1);
@@ -166,9 +200,9 @@ function route() {
   if (seg === 'inicio') tab = 'empresas';
   if (seg === 'empresa' || seg === 'empresa-form') tab = 'empresas';
   if (seg === 'equipos' || seg === 'equipo-form') tab = 'equipos';
-  if (seg === 'tarea' || seg === 'tarea-form') tab = 'tareas';
+  if (seg === 'tarea' || seg === 'tarea-form' || seg === 'resumen') tab = 'tareas';
   if (seg === 'repuesto-form') tab = 'compras';
-  if (seg === 'informe' || seg === 'informe-form') tab = 'informes';
+  if (seg === 'informe' || seg === 'informe-form' || seg === 'soluciones') tab = 'informes';
   if (seg === 'costos') tab = 'costos';
   $$('#tabbar .tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tab); });
 
@@ -183,12 +217,14 @@ function route() {
     else if (seg === 'tareas') vTareas(qs);
     else if (seg === 'tarea' && parts[1]) vTarea(parts[1]);
     else if (seg === 'tarea-form') vTareaForm(qs);
+    else if (seg === 'resumen') vResumen(qs);
     else if (seg === 'compras') vCompras(qs);
     else if (seg === 'repuesto-form') vRepuestoForm(qs);
     else if (seg === 'informes') vInformes();
     else if (seg === 'informe-form') vInformeForm(qs);
     else if (seg === 'informe' && parts[1]) vInforme(parts[1]);
     else if (seg === 'costos') vCostos(qs);
+    else if (seg === 'soluciones') vSoluciones(qs);
     else if (seg === 'ajustes') vAjustes();
     else { location.hash = '#/empresas'; }
   } catch (err) {
@@ -222,7 +258,7 @@ function vIntro() {
         '<h1>Servitech</h1>' +
         '<p class="tag">Tu carpeta de soporte técnico<br>en campo</p>' +
         '<a class="btn-open" href="#/inicio">Abrir carpeta de trabajo<span class="arr">→</span></a>' +
-        '<div class="intro-pills"><span>Empresas</span><span>Equipos</span><span>Tareas</span><span>Repuestos</span><span>Informes</span></div>' +
+        '<div class="intro-pills"><span>Empresas</span><span>Equipos</span><span>Servicios</span><span>Repuestos</span><span>Informes</span></div>' +
       '</div>' +
     '</div>';
 }
@@ -237,13 +273,15 @@ function vInicio() {
   var db = Store.db;
   var m = db.meta;
   setTitle('En servicio');
-  setNew('<a class="btn primary sm" href="#/tarea-form">+ Tarea</a>');
+  setNew('<a class="btn primary sm" href="#/tarea-form">+ Servicio</a>');
   var name = (m && m.tecnico) ? m.tecnico : 'técnico';
   var tareasAbiertas = db.tareas.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; });
   var comprar = db.repuestos.filter(function (r) { return r.estado_pedido !== 'Cambiado'; });
   var activas = db.empresas.filter(function (e) { return e.activo !== 'No'; });
   var enServicio = db.empresas.filter(function (e) { return openCount(e.id) > 0; });
   enServicio.sort(function (a, b) { return openCount(b.id) - openCount(a.id); });
+  var casosPend = (db.casos || []).filter(function (c) { return c.estado !== 'Resuelto'; }).length;
+  var confPend = db.informes.filter(function (x) { return x.conformidad === 'Pendiente'; }).length;
 
   var html = '<div class="stack">' +
     '<div class="welcome"><div class="hey">Hola, ' + esc(name) + '</div>' +
@@ -251,7 +289,7 @@ function vInicio() {
 
     '<div class="stats">' +
     '<a class="stat hero" href="#/tareas">' +
-    '<span class="lab">Tareas abiertas</span><span class="num">' + tareasAbiertas.length + '</span>' +
+    '<span class="lab">Servicios abiertos</span><span class="num">' + tareasAbiertas.length + '</span>' +
     '<span class="sub">pendientes y en curso</span></a>' +
     '<a class="stat" href="#/compras">' +
     '<span class="lab">Repuestos por comprar</span><span class="num">' + comprar.length + '</span>' +
@@ -262,12 +300,22 @@ function vInicio() {
     '<a class="stat" href="#/empresas">' +
     '<span class="lab">Equipos</span><span class="num">' + db.equipos.length + '</span>' +
     '<span class="sub">registrados</span></a>' +
+    '<a class="stat' + (casosPend ? ' hero' : '') + '" href="#/soluciones">' +
+    '<span class="lab">Quejas por resolver</span><span class="num">' + casosPend + '</span>' +
+    '<span class="sub">centro de soluciones</span></a>' +
     '</div>' +
+
+    (confPend
+      ? '<a class="card row" href="#/informes" style="border-left:4px solid #D97706;">' +
+        '<div class="row-main"><div class="t">⏳ ' + pl(confPend, 'informe esperando', 'informes esperando') + ' la conformidad del cliente</div>' +
+        '<div class="s">Ábrelo y déjalo con la conformidad firmada por el cliente.</div></div>' +
+        '<div class="row-meta"><span class="badge warn">Ver</span></div></a>'
+      : '') +
 
     '<h2 class="sec">En servicio ahora</h2>';
   if (!enServicio.length) {
-    html += '<div class="empty"><p>No hay empresas con trabajo abierto.<br>Crea una tarea o registra una empresa nueva.</p>' +
-      '<div class="btnrow" style="justify-content:center"><a class="btn primary sm" href="#/tarea-form">+ Nueva tarea</a>' +
+    html += '<div class="empty"><p>No hay empresas con trabajo abierto.<br>Crea un servicio o registra una empresa nueva.</p>' +
+      '<div class="btnrow" style="justify-content:center"><a class="btn primary sm" href="#/tarea-form">+ Nuevo servicio</a>' +
       '<a class="btn secondary sm" href="#/empresa-form">+ Empresa</a></div></div>';
   }
   enServicio.forEach(function (e) {
@@ -275,7 +323,7 @@ function vInicio() {
     html += '<a class="card row enserv" href="#/empresa/' + esc(e.id) + '">' +
       '<span class="serv-dot"></span>' +
       '<div class="row-main"><div class="t">' + esc(e.razon_social) + '</div>' +
-      '<div class="s">RUC ' + esc(e.ruc || '—') + ' · ' + pl(n, 'tarea abierta', 'tareas abiertas') + '</div></div>' +
+      '<div class="s">RUC ' + esc(e.ruc || '—') + ' · ' + pl(n, 'servicio abierto', 'servicios abiertos') + '</div></div>' +
       '<div class="row-meta"><span class="badge warn2">' + pl(n, 'abierta', 'abiertas') + '</span></div></a>';
   });
   if (enServicio.length) {
@@ -376,27 +424,28 @@ function vEmpresa(id) {
   });
   html += '<a class="btn secondary sm" href="#/equipo-form?empresa=' + esc(e.id) + '">+ Registrar equipo</a>';
 
-  html += '<div class="line" style="margin-top:18px;margin-bottom:6px;"><h2 class="sec" style="margin:0;">Jornadas y tareas (' + tars.length + ')</h2>' +
-    '<a class="btn primary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Nueva tarea</a></div>';
+  html += '<div class="line" style="margin-top:18px;margin-bottom:6px;"><h2 class="sec" style="margin:0;">Jornadas y servicios (' + tars.length + ')</h2>' +
+    '<a class="btn primary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Nuevo servicio</a></div>';
 
   var dayGroups = Store.getTareasPorFecha(id);
   if (!dayGroups.length) {
-    html += '<div class="empty sm"><p>Sin tareas todavía.</p><a class="btn secondary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Registrar primera tarea</a></div>';
+    html += '<div class="empty sm"><p>Sin servicios todavía.</p><a class="btn secondary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Registrar primer servicio</a></div>';
   } else {
     dayGroups.forEach(function (group) {
       var dFmt = dayLabel(group.fecha);
       var infExistente = infs.find(function (inf) {
-        return inf.fecha_servicio === group.fecha || (inf.fecha_emision && inf.fecha_emision.slice(0, 10) === group.fecha);
+        return informeCubreFecha(inf, group.fecha) || (inf.fecha_emision && inf.fecha_emision.slice(0, 10) === group.fecha);
       });
       html += '<div class="day-card">' +
         '<div class="day-head">' +
-        '<div class="day-title"><span>📅 ' + esc(dFmt) + '</span><span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
+        '<div class="day-title"><span>📅 ' + esc(dFmt) + '</span><span class="day-badge">' + pl(group.tareas.length, 'servicio', 'servicios') + '</span></div>' +
         '<div class="day-actions">' +
         (infExistente ?
           '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/informe/' + esc(infExistente.id) + '">Ver informe ' + esc(infExistente.codigo) + '</a>' :
           '<a class="btn secondary sm" style="font-size:11.5px;padding:3px 8px;" href="#/informe-form?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">📝 Informe del día</a>'
         ) +
-        '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/tarea-form?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">+ Tarea</a>' +
+        '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/resumen?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">👁️ Resumen</a>' +
+        '<a class="btn ghost sm" style="font-size:11.5px;padding:3px 8px;" href="#/tarea-form?empresa=' + esc(e.id) + '&fecha=' + esc(group.fecha) + '">+ Servicio</a>' +
         '</div></div>' +
         '<div class="day-items">';
       group.tareas.forEach(function (t, tIdx) {
@@ -540,7 +589,7 @@ function eqListHtml(q, idEmp) {
       '<span class="cnt' + (tarsPend ? ' warn2' : '') + '">' + pl(tarsPend, 'pendiente', 'pendientes') + '</span>' +
       '<div class="btnrow" style="margin-top:2px;">' +
       '<a class="btn ghost sm" style="padding:2px 7px;font-size:11px;" href="#/equipo-form?edit=' + esc(eq.id) + '">Editar</a>' +
-      '<a class="btn secondary sm" style="padding:2px 7px;font-size:11px;" href="#/tarea-form?empresa=' + esc(eq.id_empresa) + '&equipo=' + esc(eq.id) + '">+ Tarea</a>' +
+      '<a class="btn secondary sm" style="padding:2px 7px;font-size:11px;" href="#/tarea-form?empresa=' + esc(eq.id_empresa) + '&equipo=' + esc(eq.id) + '">+ Servicio</a>' +
       '</div>' +
       '</div></div>';
   });
@@ -631,9 +680,32 @@ function saveEquipo(form) {
 }
 
 /* =========================================================
-   TAREAS (banco de tareas)
+   SERVICIOS (banco de servicios: se agrupan por día o por mes)
    ========================================================= */
-function tarListHtml(q, est) {
+
+/* Fecha a la que se imputa un servicio */
+function servicioFecha(t) {
+  return t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || Store.today();
+}
+
+function sumCostos(list) {
+  var t = 0;
+  (list || []).forEach(function (x) { t += (parseFloat(x.costo) || 0); });
+  return t;
+}
+
+function servRowHtml(t, idx) {
+  var cod = 'T-' + String(t.id).padStart(4, '0');
+  return '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
+    '<span class="item-num">#' + (idx + 1) + '</span>' +
+    '<div class="row-main">' +
+    '<div class="t">' + esc(t.descripcion_trabajo || '(sin descripción)') + '</div>' +
+    '<div class="s">' + esc(empName(t.id_empresa)) + ' · ' + esc(eqName(t.id_equipo)) + '</div>' +
+    '<div class="s">' + cod + (t.prioridad ? ' · ' + esc(t.prioridad) : '') + '</div>' +
+    '</div><div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
+}
+
+function tarListHtml(q, est, agr) {
   var db = Store.db;
   q = (q || '').toLowerCase();
   var list = db.tareas.slice();
@@ -642,10 +714,11 @@ function tarListHtml(q, est) {
     return (empName(t.id_empresa) + ' ' + eqName(t.id_equipo) + ' ' + (t.descripcion_trabajo || '')).toLowerCase().indexOf(q) >= 0;
   });
   if (!list.length) {
-    return '<div class="empty"><p>' + (db.tareas.length ? 'Sin tareas para este filtro.' : 'No hay tareas. Crea una desde el botón + Nueva.') + '</p></div>';
+    return '<div class="empty"><p>' + (db.tareas.length ? 'Sin servicios para este filtro.' : 'No hay servicios. Crea uno desde el botón + Nuevo.') + '</p></div>';
   }
+  if (agr === 'mes') return tarMesHtml(list);
 
-  // Agrupar por fecha
+  // Agrupar por fecha (los servicios de la misma fecha se juntan aquí)
   var groups = {};
   list.forEach(function (t) {
     var f = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || Store.today();
@@ -656,50 +729,262 @@ function tarListHtml(q, est) {
 
   var html = '';
   sortedDates.forEach(function (f) {
-    var dFmt = dayLabel(f);
+    var sub = sumCostos(groups[f]);
     html += '<div class="day-card">' +
       '<div class="day-head">' +
-      '<div class="day-title"><span>📅 ' + esc(dFmt) + '</span><span class="day-badge">' + pl(groups[f].length, 'tarea', 'tareas') + '</span></div>' +
+      '<div class="day-title"><span>📅 ' + esc(dayLabel(f)) + '</span><span class="day-badge">' + pl(groups[f].length, 'servicio', 'servicios') + '</span></div>' +
+      '<div class="day-actions">' +
+      (sub > 0 ? '<span class="mes-sub">' + money(sub) + '</span>' : '') +
+      '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/resumen?fecha=' + esc(f) + '">👁️ Resumen del día</a>' +
+      '</div>' +
       '</div>' +
       '<div class="day-items">';
-    groups[f].forEach(function (t, idx) {
-      var cod = 'T-' + String(t.id).padStart(4, '0');
-      html += '<a class="card row" href="#/tarea/' + esc(t.id) + '">' +
-        '<span class="item-num">#' + (idx + 1) + '</span>' +
-        '<div class="row-main">' +
-        '<div class="t">' + esc(t.descripcion_trabajo || '(sin descripción)') + '</div>' +
-        '<div class="s">' + esc(empName(t.id_empresa)) + ' · ' + esc(eqName(t.id_equipo)) + '</div>' +
-        '<div class="s">' + cod + (t.prioridad ? ' · ' + esc(t.prioridad) : '') + '</div>' +
-        '</div><div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
+    groups[f].forEach(function (t, idx) { html += servRowHtml(t, idx); });
+    html += '</div></div>';
+  });
+  return html;
+}
+
+/* --- Vista por mes: el mes se junta y se separa por empresa --- */
+function tarMesHtml(list) {
+  var meses = {};
+  list.forEach(function (t) {
+    var m = Store.mesDe(t);
+    if (!meses[m]) meses[m] = {};
+    var e = String(t.id_empresa || '');
+    if (!meses[m][e]) meses[m][e] = [];
+    meses[m][e].push(t);
+  });
+
+  var html = '';
+  Object.keys(meses).sort(function (a, b) { return b.localeCompare(a); }).forEach(function (m) {
+    var grupos = Object.keys(meses[m]).map(function (e) { return { id: e, tareas: meses[m][e] }; })
+      .sort(function (a, b) { return empName(a.id).localeCompare(empName(b.id)); });
+    var nServ = 0, totalMes = 0;
+    grupos.forEach(function (g) { nServ += g.tareas.length; totalMes += sumCostos(g.tareas); });
+
+    html += '<div class="day-card">' +
+      '<div class="day-head">' +
+      '<div class="day-title"><span>🗓️ ' + esc(mesLabel(m)) + '</span>' +
+      '<span class="day-badge">' + pl(nServ, 'servicio', 'servicios') + ' · ' + pl(grupos.length, 'empresa', 'empresas') + '</span></div>' +
+      '<div class="day-actions">' +
+      (totalMes > 0 ? '<span class="mes-sub">Total del mes: <b>' + money(totalMes) + '</b></span>' : '') +
+      '</div>' +
+      '</div>' +
+      '<div class="day-items">';
+
+    grupos.forEach(function (g) {
+      var infMes = Store.db.informes.find(function (x) {
+        return String(x.id_empresa) === String(g.id) && !!x.periodo_mes && informeCubreMes(x, m);
+      });
+      var abiertos = g.tareas.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
+      var sub = sumCostos(g.tareas);
+      var porFecha = {};
+      g.tareas.forEach(function (t) {
+        var f = servicioFecha(t);
+        if (!porFecha[f]) porFecha[f] = [];
+        porFecha[f].push(t);
+      });
+
+      html += '<div class="mes-emp">' +
+        '<div class="mes-emp-head">' +
+        '<div class="mes-emp-main">' +
+        '<div class="t">' + esc(empName(g.id)) + '</div>' +
+        '<div class="s">' + pl(g.tareas.length, 'servicio', 'servicios') +
+        (sub > 0 ? ' · ' + money(sub) : '') +
+        (abiertos ? ' · <span class="badge warn2">' + abiertos + ' sin completar</span>' : '') +
+        '</div></div>' +
+        '<div class="day-actions">' +
+        (infMes
+          ? '<span class="badge ok">✅ ' + esc(infMes.codigo) + '</span>' +
+          '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/informe/' + esc(infMes.id) + '">Ver informe</a>'
+          : '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/resumen?empresa=' + esc(g.id) + '&mes=' + esc(m) + '">👁️ Vista del mes</a>' +
+          (g.tareas.length >= 2
+            ? '<a class="btn secondary sm" style="font-size:11px;padding:3px 8px;" href="#/informe-form?empresa=' + esc(g.id) + '&mes=' + esc(m) + '">📄 Un solo informe</a>'
+            : '<a class="btn secondary sm" style="font-size:11px;padding:3px 8px;" href="#/informe-form?empresa=' + esc(g.id) + '&fecha=' + esc(servicioFecha(g.tareas[0])) + '">📝 Informe</a>')
+        ) +
+        '</div></div>' +
+        '<div class="mes-emp-days">';
+
+      Object.keys(porFecha).sort(function (a, b) { return a.localeCompare(b); }).forEach(function (f) {
+        var dia = porFecha[f];
+        html += '<a class="mes-day-row" href="#/resumen?empresa=' + esc(g.id) + '&fecha=' + esc(f) + '">' +
+          '<span class="d">📅 ' + esc(dayLabel(f)) + '</span>' +
+          '<span class="m">' + pl(dia.length, 'servicio', 'servicios') + (sumCostos(dia) > 0 ? ' · ' + money(sumCostos(dia)) : '') + '</span>' +
+          '<span class="go">👁️</span></a>';
+      });
+
+      html += '</div>' +
+        (g.tareas.length >= 2
+          ? '<p class="hint" style="margin:8px 0 0;">Este mes tiene ' + g.tareas.length + ' servicios: puedes juntarlos en <b>un solo informe</b> para ' + esc(empName(g.id)) + '.</p>'
+          : '') +
+        '</div>';
     });
+
     html += '</div></div>';
   });
   return html;
 }
 
 function vTareas(qs) {
-  setTitle('Tareas');
-  setNew('<a class="btn primary sm" href="#/tarea-form">+ Nueva</a>');
+  setTitle('Servicios');
+  setNew('<a class="btn primary sm" href="#/tarea-form">+ Nuevo</a>');
   var est = qs.get('est') || '';
+  var agr = qs.get('agr') === 'mes' ? 'mes' : 'dia';
+  var q = qs.get('q') || '';
+  function link(extra) { return '#/tareas?' + extra; }
+
+  var vistas = '<div class="chips">' +
+    '<a class="chip' + (agr === 'dia' ? ' on' : '') + '" href="' + link('agr=dia' + (est ? '&est=' + encodeURIComponent(est) : '')) + '">📅 Por día</a>' +
+    '<a class="chip' + (agr === 'mes' ? ' on' : '') + '" href="' + link('agr=mes' + (est ? '&est=' + encodeURIComponent(est) : '')) + '">🗓️ Por mes</a>' +
+    '</div>';
+
   var chips = '<div class="chips">';
-  chips += '<a class="chip' + (!est ? ' on' : '') + '" href="#/tareas">Todas</a>';
+  chips += '<a class="chip' + (!est ? ' on' : '') + '" href="' + link('agr=' + agr) + '">Todas</a>';
   ESTADOS_TAREA_LIST.forEach(function (s) {
-    chips += '<a class="chip' + (est === s ? ' on' : '') + '" href="#/tareas?est=' + encodeURIComponent(s) + '">' + esc(s) + '</a>';
+    chips += '<a class="chip' + (est === s ? ' on' : '') + '" href="' + link('agr=' + agr + '&est=' + encodeURIComponent(s)) + '">' + esc(s) + '</a>';
   });
   chips += '</div>';
-  var html = chips +
-    '<div class="search"><input id="busTar" placeholder="Buscar por empresa o equipo…" value="' + esc(qs.get('q') || '') + '"></div>' +
+
+  var html = vistas + chips +
+    '<div class="search"><input id="busTar" placeholder="Buscar por empresa o equipo…" value="' + esc(q) + '"></div>' +
+    (agr === 'mes'
+      ? '<p class="hint">Los servicios del mismo mes se juntan por empresa: puedes ver la <b>vista del mes</b> y emitir <b>un solo informe</b> por empresa.</p>'
+      : '<p class="hint">Los servicios de la misma fecha se juntan en un solo bloque, con su resumen del día.</p>') +
     '<div id="listWrap"></div>';
   $('#view').innerHTML = html;
   var inp = $('#busTar');
-  function fill() { $('#listWrap').innerHTML = tarListHtml(inp.value, est); }
+  function fill() { $('#listWrap').innerHTML = tarListHtml(inp.value, est, agr); }
   fill();
   inp.addEventListener('input', fill);
 }
 
+/* =========================================================
+   RESUMEN DE SERVICIOS (vista previa en pantalla, imprimible)
+   Junta en un solo listado los servicios de un día o de un mes.
+   ========================================================= */
+function vResumen(qs) {
+  var db = Store.db;
+  var empId = qs.get('empresa') || '';
+  var mes = mesValido(qs.get('mes')) ? qs.get('mes') : '';
+  var fecha = qs.get('fecha') || '';
+  if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fecha = '';
+  if (!mes && !fecha) mes = Store.today().slice(0, 7);
+
+  var list = db.tareas.filter(function (t) {
+    if (empId && String(t.id_empresa) !== String(empId)) return false;
+    if (mes) return Store.mesDe(t) === mes;
+    return servicioFecha(t) === fecha;
+  }).slice().sort(function (a, b) { return servicioFecha(a).localeCompare(servicioFecha(b)); });
+
+  var emp = empId ? Store.get('empresas', empId) : null;
+  var tituloPeriodo = mes ? mesLabel(mes) : dayLabel(fecha);
+  setTitle('Resumen — ' + (emp ? emp.razon_social : tituloPeriodo));
+  setNew(null);
+
+  var empresas = {};
+  list.forEach(function (t) { empresas[String(t.id_empresa || '')] = true; });
+  var empKeys = Object.keys(empresas);
+  var clienteTxt = emp ? emp.razon_social : (empKeys.length === 1 ? empName(empKeys[0]) : pl(empKeys.length, 'cliente', 'clientes'));
+  var total = sumCostos(list);
+
+  var porFecha = {};
+  list.forEach(function (t) {
+    var f = servicioFecha(t);
+    if (!porFecha[f]) porFecha[f] = [];
+    porFecha[f].push(t);
+  });
+  var fechas = Object.keys(porFecha).sort();
+
+  var volver = empId ? ('#/empresa/' + esc(empId)) : ('#/tareas?agr=' + (mes ? 'mes' : 'dia'));
+
+  var html = '<div class="stack no-print">' +
+    '<a class="btn ghost sm" href="' + volver + '">← Volver</a>' +
+    '<div class="btnrow">' +
+    '<button class="btn ghost sm" data-act="print">🖨️ Imprimir</button>' +
+    (empId && mes && list.length >= 2
+      ? '<a class="btn primary sm" href="#/informe-form?empresa=' + esc(empId) + '&mes=' + esc(mes) + '">📄 Un solo informe del mes</a>'
+      : '') +
+    (empId && !mes && list.length
+      ? '<a class="btn primary sm" href="#/informe-form?empresa=' + esc(empId) + '&fecha=' + esc(fecha) + '">📝 Informe del día</a>'
+      : '') +
+    '</div>' +
+    '<p class="hint">Vista previa en pantalla: se juntan los servicios ' + (mes ? 'del mes' : 'del día') +
+    ' en un solo listado, con subtotal por día y total. ' +
+    (empId && mes && list.length >= 2
+      ? 'Con <b>Un solo informe del mes</b> se emite el documento oficial (numerado, con firma y envío) para esta empresa.'
+      : 'El documento oficial se emite desde Informes.') +
+    '</p>' +
+    '</div>';
+
+  html += '<div class="report">' +
+    '<div class="rep-head">' +
+    '<div>' +
+    '<div class="rep-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg> SERVITECH SOPORTE TÉCNICO</div>' +
+    '<div class="rep-t">RESUMEN DE SERVICIOS</div>' +
+    '<div class="rep-sub">' + (mes ? 'Mes: <b>' + esc(tituloPeriodo) + '</b>' : 'Día: <b>' + esc(tituloPeriodo) + '</b>') +
+    ' · Emisión: ' + fmtDate(Store.today()) + ' · Técnico: ' + esc(db.meta.tecnico || '—') + '</div>' +
+    '</div>' +
+    '<div style="text-align:right"><div class="rep-code">' + (mes ? esc(mes) : esc(fmtDate(fecha))) + '</div></div>' +
+    '</div>' +
+
+    '<div class="rep-meta-grid">' +
+    '<div class="rep-meta-card"><div class="rep-meta-title">Cliente / Empresa</div>' +
+    '<div class="rep-meta-val"><b>' + esc(clienteTxt) + '</b>' +
+    (emp && emp.ruc ? '<br>RUC: ' + esc(emp.ruc) : '') +
+    (emp && emp.direccion ? '<br>' + esc(emp.direccion) : '') + '</div></div>' +
+    '<div class="rep-meta-card"><div class="rep-meta-title">Período</div>' +
+    '<div class="rep-meta-val"><b>' + esc(tituloPeriodo) + '</b>' +
+    (fechas.length > 1 ? '<br>' + esc(fmtDate(fechas[0])) + ' al ' + esc(fmtDate(fechas[fechas.length - 1])) : '') + '</div></div>' +
+    '<div class="rep-meta-card"><div class="rep-meta-title">Servicios</div>' +
+    '<div class="rep-meta-val"><b>' + list.length + '</b> en ' + pl(fechas.length, 'jornada', 'jornadas') + '</div></div>' +
+    '<div class="rep-meta-card"><div class="rep-meta-title">Total del período</div>' +
+    '<div class="rep-meta-val"><b>' + money(total) + '</b></div></div>' +
+    '</div>';
+
+  if (!list.length) {
+    html += '<div class="empty"><p>No hay servicios registrados en ' + esc(tituloPeriodo) +
+      (emp ? ' para ' + esc(emp.razon_social) : '') + '.</p></div>';
+  }
+
+  fechas.forEach(function (f) {
+    var dia = porFecha[f];
+    html += '<div class="rep-sec-card">' +
+      '<div class="rep-sec-header">📅 ' + esc(dayLabel(f)) + ' — ' + pl(dia.length, 'servicio', 'servicios') + '</div>' +
+      '<div style="padding:6px 10px; overflow-x:auto;">' +
+      '<table class="rep-tbl"><thead><tr>' +
+      '<th style="width:34px;">#</th><th style="width:78px;">Código</th>' +
+      '<th>Cliente / Equipo</th><th>Descripción del servicio</th>' +
+      '<th style="width:96px;">Estado</th><th style="width:88px; text-align:right;">Costo</th>' +
+      '</tr></thead><tbody>';
+    dia.forEach(function (t, i) {
+      html += '<tr>' +
+        '<td>' + (i + 1) + '</td>' +
+        '<td><b>T-' + esc(String(t.id).padStart(4, '0')) + '</b></td>' +
+        '<td>' + esc(empName(t.id_empresa)) + (t.id_equipo ? '<br><small>' + esc(eqName(t.id_equipo)) + '</small>' : '') + '</td>' +
+        '<td>' + esc(t.descripcion_trabajo || '—') + '</td>' +
+        '<td>' + esc(t.estado || '—') + '</td>' +
+        '<td style="text-align:right;">' + money(parseFloat(t.costo) || 0) + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody><tfoot><tr>' +
+      '<td colspan="5" style="text-align:right;">Subtotal del día</td>' +
+      '<td style="text-align:right;">' + money(sumCostos(dia)) + '</td>' +
+      '</tr></tfoot></table></div></div>';
+  });
+
+  if (list.length) {
+    html += '<div class="resumen-total"><span>Total ' + (mes ? 'del mes' : 'del día') + '</span><b>' + money(total) + '</b></div>' +
+      '<div class="rep-foot">Servitech · Resumen de servicios (vista previa). El documento oficial con firma del cliente se emite desde Informes.</div>';
+  }
+
+  html += '</div>';
+  $('#view').innerHTML = html;
+}
+
 function vTareaForm(qs) {
   var t = qs.get('edit') ? Store.get('tareas', qs.get('edit')) : null;
-  setTitle(t ? 'Editar tarea' : 'Nueva tarea');
+  setTitle(t ? 'Editar servicio' : 'Nuevo servicio');
   setNew(null);
   var v = function (k) { return t ? t[k] : ''; };
   var defEmp = qs.get('empresa') || (t ? t.id_empresa : '');
@@ -728,7 +1013,7 @@ function vTareaForm(qs) {
     field('Costo de mano de obra / servicio (' + (Store.db.meta.currency || 'S/ ') + ')', 'costo', v('costo') != null && v('costo') !== '' ? v('costo') : '', 'number', '0.00') +
     '</div>' +
     field('Técnico responsable', 'tecnico_responsable', v('tecnico_responsable') || Store.db.meta.tecnico || '', 'text', 'Tu nombre') +
-    '<button class="btn primary block" type="submit">' + (t ? 'Guardar cambios' : 'Crear tarea') + '</button>' +
+    '<button class="btn primary block" type="submit">' + (t ? 'Guardar cambios' : 'Crear servicio') + '</button>' +
     '</form></div>';
 
   var sEmp = $('select[name=id_empresa_sel]');
@@ -748,15 +1033,15 @@ function saveTarea(form) {
   d.informe_emitido = (d.informe_emitido === 'true');
   if (d.costo !== undefined && d.costo !== '') d.costo = parseFloat(d.costo) || 0;
   var id = form.dataset.id;
-  if (id) { Store.upd('tareas', id, d); toast('Tarea actualizada'); }
-  else { d.fecha_creacion = Store.today(); var row = Store.add('tareas', d); id = row.id; toast('Tarea creada'); }
+  if (id) { Store.upd('tareas', id, d); toast('Servicio actualizado'); }
+  else { d.fecha_creacion = Store.today(); var row = Store.add('tareas', d); id = row.id; toast('Servicio creado'); }
   location.hash = '#/tarea/' + id;
 }
 
 function vTarea(id) {
   var t = Store.get('tareas', id);
   if (!t) { location.hash = '#/tareas'; return; }
-  setTitle('Tarea T-' + String(id).padStart(4, '0'));
+  setTitle('Servicio T-' + String(id).padStart(4, '0'));
   setNew(null);
   var db = Store.db;
   var reps = db.repuestos.filter(function (r) { return String(r.id_tarea) === String(id); });
@@ -809,7 +1094,7 @@ function vTarea(id) {
     html += '<a class="btn primary block" href="#/informe/' + esc(inf.id) + '">Ver informe emitido</a>';
   } else {
     html += '<a class="btn primary block" href="#/informe-form?tarea=' + esc(id) + '">Generar informe y firmar</a>' +
-      '<p class="hint">Al generar el informe con firma, la tarea pasará a Completada.</p>';
+      '<p class="hint">Al generar el informe con firma, el servicio pasará a Completado.</p>';
   }
   html += '</div>';
   $('#view').innerHTML = html;
@@ -827,7 +1112,7 @@ function vTarea(id) {
    ========================================================= */
 function repRow(r, extra) {
   var ctx = '';
-  if (r.id_tarea) ctx += '<div class="s">Tarea: ' + esc(empName(Store.get('tareas', r.id_tarea) && Store.get('tareas', r.id_tarea).id_empresa)) + ' — ' + esc((Store.get('tareas', r.id_tarea) || {}).descripcion_trabajo || 'T-' + r.id_tarea) + '</div>';
+  if (r.id_tarea) ctx += '<div class="s">Servicio: ' + esc(empName(Store.get('tareas', r.id_tarea) && Store.get('tareas', r.id_tarea).id_empresa)) + ' — ' + esc((Store.get('tareas', r.id_tarea) || {}).descripcion_trabajo || 'T-' + r.id_tarea) + '</div>';
   return '<div class="card row">' +
     '<div class="row-main"><div class="t">' + esc(r.descripcion_pieza) + (r.referencia ? ' <span class="mono">[' + esc(r.referencia) + ']</span>' : '') + '</div>' +
     ctx +
@@ -874,7 +1159,7 @@ function vRepuestoForm(qs) {
     '<div class="stack">' + '<a class="btn ghost sm" href="' + back + '">← Volver</a>' +
     '<form class="card pad" data-f="rep" data-id="' + (r ? esc(r.id) : '') + '">' +
     '<input type="hidden" name="id_empresa_h" value="' + esc(defEmp) + '">' +
-    fieldSel('Tarea (opcional)', 'id_tarea_sel', '<option value="">— Compra independiente —</option>' + Store.coll('tareas').map(function (t) {
+    fieldSel('Servicio (opcional)', 'id_tarea_sel', '<option value="">— Compra independiente —</option>' + Store.coll('tareas').map(function (t) {
       return '<option value="' + esc(t.id) + '"' + (String(defTarea) === String(t.id) ? ' selected' : '') + '>' + esc(empName(t.id_empresa)) + ' — ' + esc(t.descripcion_trabajo || 'T-' + t.id) + '</option>';
     }).join('')) +
     field('Pieza / descripción', 'descripcion_pieza', v('descripcion_pieza'), 'text', 'Ej: Fuente de poder 500W', true) +
@@ -930,13 +1215,18 @@ function vInformes() {
   var html = '';
   if (!list.length) html += '<div class="empty"><p>Aún no hay informes emitidos.</p><a class="btn primary" href="#/informe-form">Crear informe por empresa y fecha</a></div>';
   list.forEach(function (x) {
-    var fServ = x.fecha_servicio ? fmtDate(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
-    var confBadge = x.conformidad === 'No conforme'
-      ? '<span class="badge danger">⚠️ No conforme</span>'
-      : '<span class="badge ok">✅ Conforme</span>';
+    var fServ = periodoTexto(x);
+    var ccL = x.conformidad_cliente || null;
+    var confBadge = (x.conformidad === 'Pendiente')
+      ? '<span class="badge warn">⏳ Conformidad pendiente</span>'
+      : (x.conformidad === 'No conforme'
+        ? '<span class="badge danger">⚠️ No conforme</span>'
+        : ((ccL && ccL.cierre_por === 'sin_respuesta')
+          ? '<span class="badge warn2">✅ Conforme (sin respuesta)</span>'
+          : '<span class="badge ok">✅ Conforme</span>'));
     html += '<a class="card row" href="#/informe/' + esc(x.id) + '">' +
       '<div class="row-main"><div class="t">Informe ' + esc(x.codigo) + ' · ' + esc((x.empresa || {}).razon_social || '') + '</div>' +
-      '<div class="s">Jornada: <b>' + esc(fServ) + '</b> · Emitido: ' + fmtDT(x.fecha_emision) + '</div>' +
+      '<div class="s">' + (x.periodo_mes ? 'Mes: ' : 'Jornada: ') + '<b>' + esc(fServ) + '</b> · Emitido: ' + fmtDT(x.fecha_emision) + '</div>' +
       '<div class="s">Responsable: ' + esc(x.nombre_responsable || 'sin firma') + '</div></div>' +
       '<div class="row-meta" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">' +
       confBadge +
@@ -1072,12 +1362,16 @@ function vInformeForm(qs) {
   var infExistente = editId ? Store.get('informes', editId) : null;
   var tid = qs.get('tarea');
   var empId = qs.get('empresa') || (infExistente ? infExistente.id_empresa : null);
-  var fechaServicio = qs.get('fecha') || (infExistente ? infExistente.fecha_servicio : Store.today());
+  var fechaServicio = qs.get('fecha') || (infExistente ? (infExistente.fecha_servicio || '') : Store.today());
+  // Informe consolidado de un mes completo (varios servicios = un solo informe)
+  var mesPeriodo = qs.get('mes') || (infExistente && infExistente.periodo_mes ? infExistente.periodo_mes : '');
+  if (!mesValido(mesPeriodo)) mesPeriodo = '';
   var db = Store.db;
   var t = tid ? Store.get('tareas', tid) : null;
   if (t) {
     empId = t.id_empresa;
     fechaServicio = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || fechaServicio;
+    mesPeriodo = '';
   }
 
   // PASO 1: Si no hay empresa ni edición, mostrar selector de empresa únicamente
@@ -1097,7 +1391,7 @@ function vInformeForm(qs) {
       var tars = db.tareas.filter(function (t) { return String(t.id_empresa) === String(e.id); });
       var infs = db.informes.filter(function (x) { return String(x.id_empresa) === String(e.id); });
       var pendFechas = Store.getTareasPorFecha(e.id).filter(function (g) {
-        return !infs.some(function (x) { return x.fecha_servicio === g.fecha; });
+        return !infs.some(function (x) { return informeCubreFecha(x, g.fecha); });
       }).length;
       html1 += '<a class="card row" href="#/informe-form?empresa=' + esc(e.id) + '">' +
         '<div class="row-main">' +
@@ -1118,7 +1412,7 @@ function vInformeForm(qs) {
   if (!emp) { toast('Empresa no encontrada'); location.hash = '#/informes'; return; }
 
   // PASO 2: Si hay empresa pero no fecha y no es edición, mostrar lista de jornadas con estado de informe
-  if (!qs.get('fecha') && !tid && !infExistente) {
+  if (!qs.get('fecha') && !tid && !infExistente && !mesPeriodo) {
     setTitle('Jornadas — ' + emp.razon_social);
     setNew(null);
     var dayGroups = Store.getTareasPorFecha(empId);
@@ -1135,12 +1429,12 @@ function vInformeForm(qs) {
       '</div>';
 
     if (!dayGroups.length) {
-      html2 += '<div class="empty"><p>No hay tareas/jornadas registradas para esta empresa.</p>' +
-        '<a class="btn secondary" href="#/tarea-form?empresa=' + esc(empId) + '">+ Registrar tarea</a></div>';
+      html2 += '<div class="empty"><p>No hay servicios/jornadas registradas para esta empresa.</p>' +
+        '<a class="btn secondary" href="#/tarea-form?empresa=' + esc(empId) + '">+ Registrar servicio</a></div>';
     }
 
     dayGroups.forEach(function (group) {
-      var infJornada = infsEmp.find(function (x) { return x.fecha_servicio === group.fecha; });
+      var infJornada = infsEmp.find(function (x) { return informeCubreFecha(x, group.fecha); });
       var dFmt = dayLabel(group.fecha);
       var tasksPend = group.tareas.filter(function (t) { return t.estado !== 'Completada' && t.estado !== 'Cancelada'; }).length;
 
@@ -1148,7 +1442,7 @@ function vInformeForm(qs) {
         // Jornada ya tiene informe
         html2 += '<div class="day-card" style="border-left:4px solid #059669;">' +
           '<div class="day-head">' +
-          '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
+          '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'servicio', 'servicios') + '</span></div>' +
           '<div class="day-actions">' +
           '<span class="badge ok">✅ ' + esc(infJornada.codigo) + '</span>' +
           '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/informe/' + esc(infJornada.id) + '">Ver</a>' +
@@ -1158,7 +1452,7 @@ function vInformeForm(qs) {
         // Jornada pendiente de informe
         html2 += '<div class="day-card" style="border-left:4px solid #D97706;">' +
           '<div class="day-head">' +
-          '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'tarea', 'tareas') + '</span></div>' +
+          '<div class="day-title">📅 ' + esc(dFmt) + ' <span class="day-badge">' + pl(group.tareas.length, 'servicio', 'servicios') + '</span></div>' +
           '<div class="day-actions">' +
           (tasksPend > 0 ? '<span class="badge warn">' + tasksPend + ' pendientes</span>' : '') +
           '<a class="btn secondary sm" style="font-size:11.5px;padding:4px 10px;" href="#/informe-form?empresa=' + esc(empId) + '&fecha=' + esc(group.fecha) + '">📝 Crear informe</a>' +
@@ -1193,6 +1487,7 @@ function vInformeForm(qs) {
     if (String(x.id_empresa) !== String(empId)) return false;
     if (infExistente && taskIdsFromInf.indexOf(x.id) >= 0) return true;
     if (tid && String(x.id) === String(tid)) return true;
+    if (mesPeriodo) return Store.mesDe(x) === mesPeriodo;
     var xf = x.fecha_trabajo || x.fecha_programada || x.fecha_creacion || '';
     return xf === fechaServicio;
   });
@@ -1253,18 +1548,20 @@ function vInformeForm(qs) {
     '<div class="card pad">' +
     '<div class="line"><span class="big">' + (infExistente ? ('Editar Informe ' + esc(infExistente.codigo)) : 'Informe de servicio técnico') + '</span></div>' +
     '<div class="kv"><span>Empresa</span><b>' + esc(emp.razon_social) + ' · RUC ' + esc(emp.ruc || '—') + '</b></div>' +
-    '<div class="kv"><span>Fecha de atención</span><b>📅 ' + esc(dayLabel(fechaServicio)) + '</b></div>' +
+    (mesPeriodo
+      ? '<div class="kv"><span>Período del informe</span><b>🗓️ ' + esc(mesLabel(mesPeriodo)) + '</b></div>'
+      : '<div class="kv"><span>Fecha de atención</span><b>📅 ' + esc(dayLabel(fechaServicio)) + '</b></div>') +
     (eq ? '<div class="kv"><span>Equipo</span><b>' + esc(eqLabel(eq)) + ' · Serie ' + esc(eq.nro_serie || '—') + '</b></div>' : '') +
-    '<div class="kv"><span>Labores del día (' + taskIds.length + ')</span><b>' + esc(taskDescList.join(' | ') || 'Servicio general') + '</b></div>' +
+    '<div class="kv"><span>' + (mesPeriodo ? 'Servicios del mes (' : 'Labores del día (') + taskIds.length + ')</span><b>' + esc(taskDescList.join(' | ') || 'Servicio general') + '</b></div>' +
     '</div>' +
-    '<form class="card pad" data-f="inf" data-id="' + (infExistente ? esc(infExistente.id) : '') + '" data-empresa="' + esc(empId) + '" data-fecha="' + esc(fechaServicio) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
+    '<form class="card pad" data-f="inf" data-id="' + (infExistente ? esc(infExistente.id) : '') + '" data-empresa="' + esc(empId) + '" data-fecha="' + esc(mesPeriodo ? '' : fechaServicio) + '" data-mes="' + esc(mesPeriodo) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
     '<h2 class="sec">Contenido del informe</h2>' +
     fieldArea('1. Novedad: lo que se encontró', 'novedad', defaultNovedad, 'Diagnóstico en el sitio') +
     fieldArea('2. Trabajo realizado', 'trabajo_realizado', defaultTrabajo, 'Qué acciones se ejecutaron') +
     fieldArea('3. Solución / estado final', 'solucion', defaultSolucion, 'Equipo operativo, entrega conforme…') +
     fieldArea('4. Conclusiones y recomendaciones del técnico', 'recomendaciones', defaultRecom, 'Próximo mantenimiento, sugerencias de uso, precauciones…') +
     '<h2 class="sec">Repuestos utilizados</h2>';
-  if (!changed.length) html += '<p class="hint">Sin repuestos cambiados en esta jornada.</p>';
+  if (!changed.length) html += '<p class="hint">Sin repuestos cambiados ' + (mesPeriodo ? 'en este mes.' : 'en esta jornada.') + '</p>';
   changed.forEach(function (r) {
     html += '<div class="kv"><span>' + esc(r.descripcion_pieza) + '</span><b>x' + esc(r.cantidad) + ' · ' + money(r.precio_unitario) + '</b></div>';
   });
@@ -1278,25 +1575,29 @@ function vInformeForm(qs) {
     : (sumaCostos > 0 ? sumaCostos : '');
   var currSym = Store.db.meta.currency || 'S/ ';
   html += '<h2 class="sec">Monto del servicio</h2>' +
-    '<p class="hint">Es el importe que se cobra por esta jornada y aparecerá en el PDF y en el correo al cliente. ' +
+    '<p class="hint">Es el importe que se cobra ' + (mesPeriodo ? ('por todo el mes (' + esc(mesLabel(mesPeriodo)) + ')') : 'por esta jornada') +
+    ' y aparecerá en el PDF y en el correo al cliente. ' +
     (sumaCostos > 0
       ? 'Calculado desde Costos: <b>' + money(sumaCostos) + '</b> (puedes ajustarlo).'
-      : 'Aún no hay precios en Costos para esta jornada, escríbelo a mano.') + '</p>' +
+      : 'Aún no hay precios en Costos para ' + (mesPeriodo ? 'este mes' : 'esta jornada') + ', escríbelo a mano.') + '</p>' +
     '<label class="fld"><span>Monto total (' + esc(currSym) + ') *</span>' +
     '<input type="number" name="monto" step="0.01" min="0" inputmode="decimal" value="' + esc(montoVal) + '" placeholder="Ej: 350" required>' +
     '</label>' +
     (changed.length ? '<p class="hint">Los repuestos van detallados aparte en el informe, no sumes su costo aquí si ya está incluido.</p>' : '');
 
+  var obsGuardada = infExistente ? (infExistente.observaciones_conformidad || '') : '';
+
   html += '<h2 class="sec">Conformidad del servicio</h2>' +
-    '<p class="hint">Indica el resultado y satisfacción del cliente al recibir el equipo o servicio:</p>' +
+    '<p class="hint">Marca el resultado y recoge la firma del cliente antes de irte.</p>' +
     '<div class="conformidad-selector">' +
     '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme"' + (isConforme ? ' checked' : '') + '> <span>✅ Conforme (Servicio recibido a satisfacción)</span></label>' +
     '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"' + (!isConforme ? ' checked' : '') + '> <span>⚠️ No conforme (Observaciones pendientes)</span></label>' +
     '</div>' +
-    fieldArea('Observaciones de conformidad (opcional)', 'observaciones_conformidad', infExistente ? (infExistente.observaciones_conformidad || '') : '', 'Si es no conforme o requiere aclaración adicional') +
+    fieldArea('Observaciones de conformidad (opcional)', 'observaciones_conformidad', obsGuardada, 'Si es no conforme o requiere aclaración adicional') +
+
     '<h2 class="sec">Datos del responsable y firmas</h2>' +
     '<div class="row2">' +
-    field('Nombre del responsable *', 'nombre_responsable', infExistente ? (infExistente.nombre_responsable || '') : (emp.persona_contacto || ''), 'text', 'Quien confirma en el cliente') +
+    field('Nombre del responsable', 'nombre_responsable', infExistente ? (infExistente.nombre_responsable || '') : (emp.persona_contacto || ''), 'text', 'Quien confirma en el cliente') +
     field('Cargo', 'cargo_responsable', infExistente ? (infExistente.cargo_responsable || '') : (emp.cargo_contacto || ''), 'text', 'Ej: Administrador') +
     '</div>' +
     '<div class="fld"><span>Firma del responsable (cliente) *</span>' +
@@ -1305,25 +1606,29 @@ function vInformeForm(qs) {
     '<div class="fld"><span>Firma del técnico</span>' +
     '<canvas id="padTec" class="sig"></canvas>' +
     '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padTec">Limpiar firma</button></div>' +
-    '<button class="btn primary block" type="submit">' + (infExistente ? 'Actualizar informe' : 'Guardar informe y cerrar jornada') + '</button>' +
-    '<p class="hint">' + (infExistente ? 'Los cambios se actualizarán manteniendo el código del informe.' : 'Al guardar, las tareas de esta fecha pasarán a Completadas y el informe quedará archivado.') + '</p>' +
+    '<button class="btn primary block" type="submit" id="btnGuardarInforme">' + (infExistente ? 'Actualizar informe' : 'Guardar informe y cerrar jornada') + '</button>' +
+    '<p class="hint" id="informeModoHint">' + (infExistente ? 'Los cambios se actualizarán manteniendo el código del informe.' : ('Al guardar, los servicios de ' + (mesPeriodo ? 'este mes' : 'esta fecha') + ' pasarán a Completados y el informe quedará archivado.')) + '</p>' +
     '</form></div>';
   $('#view').innerHTML = html;
   var padResp = initPad('padResp');
   var padTec = initPad('padTec');
   window._pads = { resp: padResp, tec: padTec };
+  window._infEditando = !!infExistente;
+  window._infMes = !!mesPeriodo;
 
   // Si estamos editando, precargar las firmas previas en el canvas
   if (infExistente) {
     if (infExistente.firma_responsable && padResp) padResp.fromDataURL(infExistente.firma_responsable);
     if (infExistente.firma_tecnico && padTec) padTec.fromDataURL(infExistente.firma_tecnico);
   }
+
 }
 
 function saveInforme(form) {
   var infId = form.dataset.id;
   var empId = form.dataset.empresa;
-  var fechaServicio = form.dataset.fecha || Store.today();
+  var mesPeriodo = mesValido(form.dataset.mes) ? form.dataset.mes : '';
+  var fechaServicio = form.dataset.fecha || (mesPeriodo ? '' : Store.today());
   var taskIdsStr = form.dataset.tasks || '';
   var taskIds = taskIdsStr ? taskIdsStr.split(',').filter(Boolean) : [];
 
@@ -1333,7 +1638,14 @@ function saveInforme(form) {
   var existingInf = infId ? Store.get('informes', infId) : null;
   var d = readForm(form);
   var pads = window._pads || {};
-  if (!d.nombre_responsable.trim()) { toast('Escribe el nombre del responsable'); return; }
+  // La conformidad se recoge siempre en el sitio: el cliente está delante y
+  // firma en el momento, antes de que el técnico se retire.
+  var obsConf = String(d.observaciones_conformidad || '');
+
+  if (!String(d.nombre_responsable || '').trim()) {
+    toast('Escribe el nombre del responsable');
+    return;
+  }
 
   var monto = parseFloat(d.monto);
   if (!(monto > 0)) { toast('Escribe el monto del servicio (debe ser mayor que 0)'); return; }
@@ -1383,8 +1695,8 @@ function saveInforme(form) {
     existingInf.trabajo_realizado = d.trabajo_realizado;
     existingInf.solucion = d.solucion;
     existingInf.recomendaciones = d.recomendaciones || '';
+    existingInf.observaciones_conformidad = obsConf;
     existingInf.conformidad = d.conformidad || 'Conforme';
-    existingInf.observaciones_conformidad = d.observaciones_conformidad || '';
     existingInf.nombre_responsable = d.nombre_responsable;
     existingInf.cargo_responsable = d.cargo_responsable;
     existingInf.monto = monto;
@@ -1394,6 +1706,12 @@ function saveInforme(form) {
     existingInf.fecha_modificacion = Store.nowLocal();
 
     Store.upd('informes', infId, existingInf);
+    crearCasoDeConformidad(existingInf, {
+      conformidad: existingInf.conformidad,
+      observacion: obsConf,
+      nombre: existingInf.nombre_responsable,
+      cargo: existingInf.cargo_responsable
+    });
     toast('Informe ' + existingInf.codigo + ' actualizado');
     location.hash = '#/informe/' + infId;
     return;
@@ -1403,12 +1721,17 @@ function saveInforme(form) {
   var row = {
     codigo: Store.nextInfCode(),
     id_empresa: empId,
-    fecha_servicio: fechaServicio,
+    fecha_servicio: mesPeriodo ? '' : fechaServicio,
+    periodo_mes: mesPeriodo,
     task_ids: taskIds,
     id_tarea: taskIds[0] || '',
     fecha_emision: Store.nowLocal(),
     tecnico: (primerTarea && primerTarea.tecnico_responsable) || Store.db.meta.tecnico || '',
-    empresa: { razon_social: emp.razon_social, ruc: emp.ruc, direccion: emp.direccion, contacto: emp.persona_contacto },
+    empresa: {
+      razon_social: emp.razon_social, ruc: emp.ruc, direccion: emp.direccion,
+      contacto: emp.persona_contacto, cargo: emp.cargo_contacto,
+      email: emp.email, telefono: emp.telefono, telefono_contacto: emp.telefono_contacto
+    },
     equipo: eq ? { tipo: eq.tipo_equipo, marca: eq.marca, modelo: eq.modelo, serie: eq.nro_serie, ubicacion: eq.ubicacion, usuario: eq.usuario, ubicacion_empresa: eq.ubicacion_empresa } : null,
     novedad: d.novedad,
     trabajo_realizado: d.trabajo_realizado,
@@ -1416,7 +1739,7 @@ function saveInforme(form) {
     recomendaciones: d.recomendaciones || '',
     repuestos: repuestosData,
     conformidad: d.conformidad || 'Conforme',
-    observaciones_conformidad: d.observaciones_conformidad || '',
+    observaciones_conformidad: obsConf,
     nombre_responsable: d.nombre_responsable,
     cargo_responsable: d.cargo_responsable,
     monto: monto,
@@ -1429,7 +1752,16 @@ function saveInforme(form) {
 
   var nuevo = Store.add('informes', row);
 
-  // Marcar todas las tareas de la jornada como completadas
+  // Si el cliente firmó "No conforme" (o dejó observaciones), queda un caso
+  // abierto en el Centro de soluciones.
+  crearCasoDeConformidad(nuevo, {
+    conformidad: row.conformidad,
+    observacion: obsConf,
+    nombre: row.nombre_responsable,
+    cargo: row.cargo_responsable
+  });
+
+  // Marcar todos los servicios del período (día o mes) como completados
   taskIds.forEach(function (tid) {
     Store.upd('tareas', tid, {
       estado: 'Completada',
@@ -1447,7 +1779,8 @@ function informeText(x) {
   var eq = x.equipo;
   var L = [];
   L.push('INFORME DE SERVICIO TECNICO ' + (x.codigo || ''));
-  if (x.fecha_servicio) L.push('Fecha de atencion / jornada: ' + fmtDate(x.fecha_servicio));
+  if (x.periodo_mes) L.push('Periodo del informe (mes): ' + mesLabel(x.periodo_mes));
+  else if (x.fecha_servicio) L.push('Fecha de atencion / jornada: ' + fmtDate(x.fecha_servicio));
   L.push('Fecha de emision: ' + fmtDT(x.fecha_emision));
   L.push('');
   L.push('EMPRESA');
@@ -1478,10 +1811,6 @@ function informeText(x) {
   L.push('ESTADO DE CONFORMIDAD: ' + confText);
   if (x.observaciones_conformidad) L.push('Observaciones: ' + x.observaciones_conformidad);
   L.push('Conformidad del responsable: ' + (x.nombre_responsable || '') + (x.cargo_responsable ? ' (' + x.cargo_responsable + ')' : ''));
-  if (x.conformidad_cliente && x.conformidad_cliente.estado === 'cerrada') {
-    L.push('Conformidad firmada por el cliente desde el enlace enviado a ' + (x.conformidad_cliente.email || '') +
-      (x.conformidad_cliente.cerrado_en ? ' el ' + x.conformidad_cliente.cerrado_en : ''));
-  }
   if (x.tecnico) L.push('Tecnico: ' + x.tecnico);
   return L.join('\n');
 }
@@ -1550,8 +1879,10 @@ function vInforme(id) {
   setNew('<a class="btn secondary sm" href="#/informe-form?edit=' + esc(id) + '">✏️ Editar</a>');
   var e = x.empresa || {};
   var eq = x.equipo;
-  var fServ = x.fecha_servicio ? dayLabel(x.fecha_servicio) : fmtDate((x.fecha_emision || '').slice(0, 10));
-  var isConforme = (x.conformidad !== 'No conforme');
+  var fServ = periodoTexto(x);
+  var esPendiente = (x.conformidad === 'Pendiente');
+  var isConforme = !esPendiente && (x.conformidad !== 'No conforme');
+  var casoInf = casoDeInforme(x.id);
 
   var totalRepuestos = 0;
   if (x.repuestos && x.repuestos.length) {
@@ -1565,14 +1896,18 @@ function vInforme(id) {
     '<button class="btn secondary sm" data-act="pdf-dl" data-id="' + esc(id) + '">📥 Descargar PDF</button>' +
     '<button class="btn ghost sm" data-act="print">🖨️ Imprimir</button>' +
     '<button class="btn danger sm" data-act="del-inf" data-id="' + esc(id) + '">Eliminar</button>' +
-    '</div></div>';
+    '</div>' +
+    (esPendiente
+      ? '<p class="hint">⏳ Este informe quedó registrado como <b>pendiente de conformidad</b> (se emitió con la versión anterior de la app). Ábrelo en <b>Editar informe</b> para dejar la conformidad firmada por el cliente.</p>'
+      : '') +
+    '</div>';
 
   html += '<div class="report" id="printArea">' +
     '<div class="rep-head">' +
     '<div>' +
     '<div class="rep-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg> SERVITECH SOPORTE TÉCNICO</div>' +
     '<div class="rep-t">INFORME DE SERVICIO TÉCNICO</div>' +
-    '<div class="rep-sub">Jornada de atención: <b>' + esc(fServ) + '</b> · Emisión: ' + fmtDT(x.fecha_emision) + ' · Técnico: ' + esc(x.tecnico || '—') + '</div>' +
+    '<div class="rep-sub">' + (x.periodo_mes ? 'Período del informe: ' : 'Jornada de atención: ') + '<b>' + esc(fServ) + '</b> · Emisión: ' + fmtDT(x.fecha_emision) + ' · Técnico: ' + esc(x.tecnico || '—') + '</div>' +
     '</div>' +
     '<div style="text-align:right">' +
     '<div class="rep-code">N° ' + esc(x.codigo) + '</div>' +
@@ -1591,7 +1926,7 @@ function vInforme(id) {
     '<div class="rep-meta-card">' +
     '<div class="rep-meta-title">Atención y Equipo</div>' +
     '<div class="rep-meta-val">' +
-    '<b>Fecha:</b> ' + esc(fServ) + '<br>' +
+    '<b>' + (x.periodo_mes ? 'Período:' : 'Fecha:') + '</b> ' + esc(fServ) + '<br>' +
     (eq ? '<b>Equipo:</b> ' + esc([eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' ')) +
       (eq.serie ? '<br><b>Serie:</b> ' + esc(eq.serie) : '') +
       (eq.usuario ? '<br><b>Usuario:</b> ' + esc(eq.usuario) : '') +
@@ -1601,9 +1936,11 @@ function vInforme(id) {
     '<div class="rep-meta-card">' +
     '<div class="rep-meta-title">Estado de conformidad</div>' +
     '<div class="rep-meta-val">' +
-    (isConforme
-      ? '<span class="rep-conformidad-badge rep-conf-si">✅ Servicio Conforme</span>'
-      : '<span class="rep-conformidad-badge rep-conf-no">⚠️ No Conforme (Con Observación)</span>') +
+    (esPendiente
+      ? '<span class="rep-conformidad-badge rep-conf-pend">⏳ Conformidad pendiente del cliente</span>'
+      : (isConforme
+        ? '<span class="rep-conformidad-badge rep-conf-si">✅ Servicio Conforme</span>'
+        : '<span class="rep-conformidad-badge rep-conf-no">⚠️ No Conforme (Con Observación)</span>')) +
     (x.observaciones_conformidad ? '<div style="margin-top:6px; font-size:12.5px; color:#556;"><b>Obs:</b> ' + esc(x.observaciones_conformidad) + '</div>' : '') +
     '</div></div>' +
     '</div>' +
@@ -1675,21 +2012,20 @@ function vInforme(id) {
       'Monto del servicio' +
       '</div>' +
       '<div class="rep-monto-body">' +
-      '<span class="rep-monto-lbl">Importe por la jornada de servicio técnico</span>' +
+      '<span class="rep-monto-lbl">' + (x.periodo_mes ? 'Importe por el mes de servicio técnico' : 'Importe por la jornada de servicio técnico') + '</span>' +
       '<span class="rep-monto-val">' + esc(x.moneda || 'S/ ') + Number(x.monto).toFixed(2) + '</span>' +
       '</div>' +
       '</div>';
   }
-
-  /* Conformidad del cliente: se pide y se recibe por enlace */
-  html += confClienteHtml(x);
 
   /* Firmas y conformidad */
   html += '<div class="rep-firmas">' +
     '<div class="firma">' +
     '<div class="firma-box">' + (x.firma_responsable ? '<img src="' + x.firma_responsable + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
     '<div class="firma-nombre">' + esc(x.nombre_responsable || 'Responsable de recepción') + (x.cargo_responsable ? '<br><small>' + esc(x.cargo_responsable) + '</small>' : '') + '</div>' +
-    '<div class="firma-rol">Conformidad del cliente: ' + (isConforme ? '<b>CONFORME</b>' : '<b style="color:#B91C1C">NO CONFORME</b>') + '</div>' +
+    '<div class="firma-rol">Conformidad del cliente: ' + (esPendiente
+      ? '<b style="color:#92400E">PENDIENTE</b>'
+      : (isConforme ? '<b>CONFORME</b>' : '<b style="color:#B91C1C">NO CONFORME</b>')) + '</div>' +
     '</div>' +
     '<div class="firma">' +
     '<div class="firma-box">' + (x.firma_tecnico ? '<img src="' + x.firma_tecnico + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
@@ -1699,16 +2035,9 @@ function vInforme(id) {
     '</div>' +
 
     (x.enviado_a ? '<div class="rep-foot">Comprobante de envío: enviado vía ' + esc(x.enviado_a) + ' el ' + fmtDT(x.fecha_envio) + '</div>' : '') +
-    ((x.conformidad_cliente && x.conformidad_cliente.estado === 'cerrada')
-      ? '<div class="rep-foot">Conformidad firmada por el cliente desde el enlace enviado a ' + esc(x.conformidad_cliente.email || '') + ' el ' + esc(fmtDT(x.conformidad_cliente.cerrado_en)) + '</div>'
-      : '') +
+    (casoInf ? '<div class="rep-foot">Caso de solución abierto: ' + esc(casoInf.tipo) + ' (' + esc(casoInf.estado) + ')</div>' : '') +
     '</div>';
   $('#view').innerHTML = html;
-
-  // Si ya se le pidió la conformidad y todavía no respondió, miramos si llegó.
-  if (x.conformidad_cliente && x.conformidad_cliente.estado === 'enviada') {
-    confBuscarRespuesta(x.id, true);
-  }
 }
 
 /* =========================================================
@@ -1775,7 +2104,7 @@ function buildCostosPdfHtml(selTasks) {
           'SERVITECH' +
         '</div>' +
         '<div class="rep-t" style="font-size:20px; font-weight:800; color:#0F766E; margin-top:4px;">LIQUIDACIÓN DE COSTOS DE SERVICIOS</div>' +
-        '<div class="rep-sub" style="font-size:12px; color:#526360;">Resumen valorizado de tareas y servicios técnicos realizados</div>' +
+        '<div class="rep-sub" style="font-size:12px; color:#526360;">Resumen valorizado de los servicios técnicos realizados</div>' +
       '</div>' +
       '<div style="text-align:right;">' +
         '<div style="display:inline-block; background:#E6F6F4; color:#0F766E; font-weight:800; font-size:12px; padding:4px 10px; border-radius:8px; border:1px solid rgba(15, 118, 110, .2);">' + docNum + '</div>' +
@@ -1797,7 +2126,7 @@ function buildCostosPdfHtml(selTasks) {
         '<div style="font-size:12px; font-weight:700; color:#182624;">' + esc(periodo) + '</div>' +
       '</div>' +
       '<div style="background:#F8FBFA; border:1px solid #E1EBE8; border-radius:10px; padding:10px;">' +
-        '<div style="font-size:10px; font-weight:750; text-transform:uppercase; color:#60726E; margin-bottom:3px;">Tareas Incluidas</div>' +
+        '<div style="font-size:10px; font-weight:750; text-transform:uppercase; color:#60726E; margin-bottom:3px;">Servicios Incluidos</div>' +
         '<div style="font-size:12px; font-weight:700; color:#182624;">' + selTasks.length + ' servicios</div>' +
       '</div>' +
     '</div>' +
@@ -1906,7 +2235,7 @@ function generateCostosPdf(selTasks, callback) {
 
 function vCostos(qs) {
   setTitle('Costos');
-  setNew('<a class="btn primary sm" href="#/tarea-form">+ Nueva tarea</a>');
+  setNew('<a class="btn primary sm" href="#/tarea-form">+ Nuevo servicio</a>');
 
   var db = Store.db;
   var tareas = (db.tareas || []).slice();
@@ -1915,9 +2244,9 @@ function vCostos(qs) {
     $('#view').innerHTML = '<div class="stack">' +
       '<div class="card pad" style="text-align:center; padding: 40px 20px;">' +
       '<div style="font-size:42px; margin-bottom: 12px;">💰</div>' +
-      '<h2 class="sec" style="margin-bottom:8px;">Sin tareas registradas</h2>' +
-      '<p class="hint">Crea tareas primero para asignar costos y calcular totales.</p>' +
-      '<div style="margin-top:16px;"><a class="btn primary" href="#/tarea-form">+ Crear primera tarea</a></div>' +
+      '<h2 class="sec" style="margin-bottom:8px;">Sin servicios registrados</h2>' +
+      '<p class="hint">Crea servicios primero para asignar costos y calcular totales.</p>' +
+      '<div style="margin-top:16px;"><a class="btn primary" href="#/tarea-form">+ Crear primer servicio</a></div>' +
       '</div></div>';
     return;
   }
@@ -1973,8 +2302,8 @@ function vCostos(qs) {
           '<div class="costos-period-pill" id="costosPeriodoSel">Todas las fechas</div>' +
         '</div>' +
         '<div style="text-align:right;">' +
-          '<div class="costos-sel-pill" id="costosCountSel">0 tareas</div>' +
-          '<div class="costos-total-all" id="costosTotalAll">Total tareas visibles: ' + currSym + '0.00</div>' +
+          '<div class="costos-sel-pill" id="costosCountSel">0 servicios</div>' +
+          '<div class="costos-total-all" id="costosTotalAll">Total servicios visibles: ' + currSym + '0.00</div>' +
         '</div>' +
       '</div>' +
       '<div class="costos-actions-row">' +
@@ -2001,7 +2330,7 @@ function vCostos(qs) {
 
     '<!-- Buscador -->' +
     '<div class="search">' +
-      '<input id="busCostos" placeholder="Buscar por tarea, empresa o equipo…" value="' + esc(curQ) + '">' +
+      '<input id="busCostos" placeholder="Buscar por servicio, empresa o equipo…" value="' + esc(curQ) + '">' +
     '</div>' +
 
     '<!-- Listado agrupado por Fechas -->' +
@@ -2016,7 +2345,7 @@ function vCostos(qs) {
       '<div class="day-head day-head-costos">' +
         '<div class="day-title">' +
           '<span>📅 ' + esc(dayLabel(f)) + '</span>' +
-          '<span class="day-badge">' + pl(dayTasks.length, 'tarea', 'tareas') + '</span>' +
+          '<span class="day-badge">' + pl(dayTasks.length, 'servicio', 'servicios') + '</span>' +
         '</div>' +
         '<div class="day-costos-right">' +
           '<span class="day-costos-sub" id="daySub-' + esc(f) + '">Subtotal día: <b>' + money(daySub) + '</b></span>' +
@@ -2050,7 +2379,7 @@ function vCostos(qs) {
         '</div>' +
         '<div class="costos-item-foot">' +
           '<label class="costos-input-label">' +
-            '<span class="costos-lbl-text">Costo de tarea:</span>' +
+            '<span class="costos-lbl-text">Costo del servicio:</span>' +
             '<div class="costos-input-wrap">' +
               '<span class="costos-curr-sym">' + esc(currSym) + '</span>' +
               '<input type="number" step="0.01" min="0" class="costos-input" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" value="' + esc(valCosto) + '" placeholder="0.00">' +
@@ -2075,7 +2404,7 @@ function vCostos(qs) {
     var countVis = 0;
     var selDates = [];
 
-    // Recalcular subtotales por día (solo tareas visibles)
+    // Recalcular subtotales por día (solo servicios visibles)
     sortedDates.forEach(function (f) {
       var dSub = 0;
       groups[f].forEach(function (t) {
@@ -2110,12 +2439,12 @@ function vCostos(qs) {
 
     if (elSel) elSel.textContent = money(sumSel);
     if (elCount) elCount.textContent = countSel + ' de ' + countVis + ' visibles selecc.';
-    if (elAll) elAll.textContent = 'Total tareas visibles: ' + money(sumVis);
+    if (elAll) elAll.textContent = 'Total servicios visibles: ' + money(sumVis);
 
     if (elPeriodo) {
       selDates.sort();
       if (!selDates.length) {
-        elPeriodo.textContent = 'Ninguna tarea seleccionada';
+        elPeriodo.textContent = 'Ningún servicio seleccionado';
       } else if (selDates.length === 1 || selDates[0] === selDates[selDates.length - 1]) {
         elPeriodo.textContent = 'Fecha: ' + fmtDate(selDates[0]);
       } else {
@@ -2363,7 +2692,7 @@ function vCostos(qs) {
       var total = 0;
       selTasks.forEach(function (t) { total += (parseFloat(t.costo) || 0); });
       var filename = 'Liquidacion_Costos_' + Store.today() + '.pdf';
-      var textMsg = 'Hola, adjunto la Liquidación de Costos de Servicios en PDF con ' + selTasks.length + ' tareas por un total de ' + money(total) + '.';
+      var textMsg = 'Hola, adjunto la Liquidación de Costos de Servicios en PDF con ' + selTasks.length + ' servicios por un total de ' + money(total) + '.';
       var waUrl = 'https://wa.me/?text=' + encodeURIComponent(textMsg);
 
       try {
@@ -2425,396 +2754,140 @@ function vCostos(qs) {
 }
 
 /* =========================================================
-   CONFORMIDAD DEL CLIENTE (página pública, sin sesión)
-   =========================================================
-   El cliente abre el enlace que le llega por correo:
+   CENTRO DE SOLUCIONES (quejas y observaciones del cliente)
 
-       https://.../?c=<token>&u=<uid>
+   Cuando el cliente confirma el servicio por el enlace y deja una
+   queja (No conforme) o una observación, se abre un caso aquí para
+   resolverlo y dejar constancia de qué se hizo.
+   ========================================================= */
 
-   Aquí no hay sesión iniciada: las reglas de Firestore solo
-   le permiten leer ese envío y crear su respuesta una vez.
-   Por eso esta vista no toca Store ni los datos del técnico.
-*/
+/* ¿Este informe tiene un caso en el centro de soluciones? */
+function casoDeInforme(idInforme) {
+  var list = Store.db.casos || [];
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].id_informe) === String(idInforme)) return list[i];
+  }
+  return null;
+}
 
-var _padCliente = null;
-var _confToken = '';
-var _confUid = '';
+/* Abre (o actualiza) el caso cuando el cliente firma "No conforme" o deja
+   observaciones al recibir el servicio. */
+function crearCasoDeConformidad(x, r) {
+  if (!x || !r) return null;
+  var esQueja = (r.conformidad === 'No conforme');
+  var texto = String(r.observacion || '').trim();
+  if (!esQueja && !texto) return null;
 
-function vConformidadCliente(token, uid) {
-  _confToken = token;
-  _confUid = uid;
-  setTitle('Conformidad del servicio');
-  setNew(null);
-  document.body.classList.add('modo-publico');
-
-  var respondido = false;
-  try { respondido = localStorage.getItem('servitech_conf_' + token) === '1'; } catch (e) { }
-
-  if (respondido) { confGracias(); return; }
-
-  $('#view').innerHTML = '<div class="stack conf-publico"><div class="card pad"><p class="hint">Cargando el detalle del servicio…</p></div></div>';
-
-  if (!window.Cloud || !Cloud.leerEnvio) {
-    confError('No se pudo cargar la aplicación. Revisa tu conexión e inténtalo otra vez.');
-    return;
+  var ya = casoDeInforme(x.id);
+  if (ya) {
+    Store.upd('casos', ya.id, {
+      tipo: esQueja ? 'Queja' : 'Observación',
+      texto: texto || ya.texto,
+      conformidad: r.conformidad || ''
+    });
+    return Store.get('casos', ya.id);
   }
 
-  Cloud.leerEnvio(uid, token).then(function (env) {
-    if (!env) { confError('Este enlace no existe o fue retirado. Pídele al técnico que te envíe uno nuevo.'); return; }
-    if (env.estado && env.estado !== 'pendiente') { confGracias(); return; }
-    confFormulario(env);
-  }).catch(function (e) {
-    confError('No se pudo abrir el detalle del servicio. Revisa tu conexión e inténtalo otra vez.' +
-      (e && e.message ? ' (' + e.message + ')' : ''));
+  return Store.add('casos', {
+    id_informe: x.id,
+    codigo: x.codigo || '',
+    id_empresa: x.id_empresa || '',
+    empresa: (x.empresa || {}).razon_social || '',
+    tipo: esQueja ? 'Queja' : 'Observación',
+    texto: texto,
+    conformidad: r.conformidad || '',
+    cliente: r.nombre || '',
+    cargo: r.cargo || '',
+    abierto_en: Store.nowLocal(),
+    estado: 'Pendiente',
+    solucion: '',
+    resuelto_en: ''
   });
 }
 
-function confError(msj) {
-  document.body.classList.add('modo-publico');
-  $('#view').innerHTML = '<div class="stack conf-publico"><div class="card pad">' +
-    '<h2 class="sec">No pudimos abrir el enlace</h2>' +
-    '<p class="hint">' + esc(msj) + '</p></div></div>';
-}
+var _casoFiltro = 'pendientes';
+var _casoEditando = null;
 
-function confGracias() {
-  document.body.classList.add('modo-publico');
-  $('#view').innerHTML = '<div class="stack conf-publico"><div class="card pad conf-gracias">' +
-    '<div class="conf-ok-mark">✓</div>' +
-    '<h2>Gracias, su conformidad quedó registrada</h2>' +
-    '<p class="hint">Ya le llegó al técnico. Puede cerrar esta página.</p>' +
-    '</div></div>';
-}
+function vSoluciones(qs) {
+  setTitle('Centro de soluciones');
+  setNew(null);
 
-function confFormulario(env) {
-  var html = '<div class="stack conf-publico">' +
+  var todos = (Store.db.casos || []).slice().sort(function (a, b) {
+    return String(b.abierto_en || '').localeCompare(String(a.abierto_en || ''));
+  });
+  var pend = todos.filter(function (c) { return c.estado !== 'Resuelto'; });
+  var resu = todos.filter(function (c) { return c.estado === 'Resuelto'; });
+
+  var filtro = (qs && qs.get('ver')) || _casoFiltro;
+  if (['pendientes', 'resueltos', 'todos'].indexOf(filtro) < 0) filtro = 'pendientes';
+  _casoFiltro = filtro;
+  var lista = (filtro === 'resueltos') ? resu : (filtro === 'todos' ? todos : pend);
+
+  var html = '<div class="stack">' +
+    '<a class="btn ghost sm" href="#/inicio">← Volver al inicio</a>' +
     '<div class="card pad">' +
-    '<span class="conf-kicker">Servitech · Conformidad del servicio</span>' +
-    '<h2 class="conf-emp">' + esc(env.empresa || 'Servicio técnico') + '</h2>' +
-    (env.codigo ? '<p class="hint" style="margin-top:2px">Informe ' + esc(env.codigo) +
-      (env.fecha_servicio ? ' · ' + esc(env.fecha_servicio) : '') + '</p>' : '') +
-    (env.tecnico ? '<div class="kv"><span>Técnico</span><b>' + esc(env.tecnico) + '</b></div>' : '') +
-    (env.resumen ? '<div class="conf-bloque"><span class="conf-lbl">Trabajo realizado</span><p>' + esc(env.resumen) + '</p></div>' : '') +
-    (env.monto_txt ? '<div class="conf-monto"><span class="conf-lbl">Monto del servicio</span><b>' + esc(env.monto_txt) + '</b></div>' : '') +
+    '<h2 class="sec">🧰 Centro de soluciones</h2>' +
+    '<p class="hint">Aquí caen las quejas y observaciones que deja el cliente cuando confirma el servicio por el enlace. Resuelve cada caso y anota qué se hizo.</p>' +
+    '<div class="kv"><span>Pendientes</span><b>' + pend.length + '</b></div>' +
+    '<div class="kv"><span>Resueltos</span><b>' + resu.length + '</b></div>' +
     '</div>' +
-
-    '<form class="card pad" data-f="conf">' +
-    '<h2 class="sec">Su conformidad</h2>' +
-    '<p class="hint">Marque el resultado y firme con el dedo en el recuadro. Se enviará directamente al técnico.</p>' +
-    '<div class="conformidad-selector">' +
-    '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme" checked> <span>✅ Conforme (servicio recibido a satisfacción)</span></label>' +
-    '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"> <span>⚠️ No conforme (dejo una observación)</span></label>' +
-    '</div>' +
-    fieldArea('Observación (obligatoria si marca No conforme)', 'observacion', '', 'Escriba aquí cualquier observación sobre el servicio', 1999) +
-    '<div class="row2">' +
-    field('Su nombre', 'nombre', env.contacto || '', 'text', 'Quien confirma el servicio', true, 119) +
-    field('Cargo', 'cargo', '', 'text', 'Ej: Administrador', false, 119) +
-    '</div>' +
-    '<div class="fld"><span>Su firma *</span>' +
-    '<div class="sig-wrap"><canvas id="padCliente" class="sig"></canvas>' +
-    '<button type="button" class="btn ghost sm sig-clear" data-act="conf-limpiar">Borrar firma</button></div></div>' +
-    '<button class="btn primary block" type="submit" id="confEnviar">Enviar conformidad</button>' +
-    '<p class="hint">Al enviar, su conformidad queda registrada con la fecha de hoy.</p>' +
-    '</form>' +
+    '<div class="chips">' +
+    '<a class="chip' + (filtro === 'pendientes' ? ' on' : '') + '" href="#/soluciones?ver=pendientes">Pendientes (' + pend.length + ')</a>' +
+    '<a class="chip' + (filtro === 'resueltos' ? ' on' : '') + '" href="#/soluciones?ver=resueltos">Resueltos (' + resu.length + ')</a>' +
+    '<a class="chip' + (filtro === 'todos' ? ' on' : '') + '" href="#/soluciones?ver=todos">Todos (' + todos.length + ')</a>' +
     '</div>';
 
+  if (!lista.length) {
+    html += '<div class="empty"><p>' +
+      (filtro === 'pendientes'
+        ? 'No hay quejas ni observaciones pendientes.'
+        : (filtro === 'resueltos' ? 'Todavía no has resuelto ningún caso.' : 'Todavía no hay casos registrados.')) +
+      '</p></div>';
+  }
+
+  lista.forEach(function (c) {
+    var esQueja = (c.tipo === 'Queja');
+    var resuelto = (c.estado === 'Resuelto');
+
+    html += '<div class="card pad">' +
+      '<div class="line"><span class="big">' + esc(c.empresa || 'Cliente') + '</span>' +
+      '<span class="badge ' + (esQueja ? 'danger' : 'warn2') + '">' + esc(c.tipo || 'Observación') + '</span>' +
+      '<span class="badge ' + (resuelto ? 'ok' : 'warn') + '">' + (resuelto ? '✅ Resuelto' : '⏳ Pendiente') + '</span></div>' +
+      '<div class="s">' + (c.codigo ? 'Informe ' + esc(c.codigo) + ' · ' : '') + 'Abierto el ' + esc(fmtDT(c.abierto_en)) + '</div>' +
+      (c.texto
+        ? '<div class="caso-texto' + (esQueja ? ' queja' : '') + '">' + esc(c.texto) + '</div>'
+        : '<p class="hint">El cliente no dejó texto.</p>') +
+      (c.cliente ? '<div class="kv"><span>Lo reportó</span><b>' + esc(c.cliente) + (c.cargo ? ' (' + esc(c.cargo) + ')' : '') + '</b></div>' : '') +
+      (resuelto
+        ? '<div class="kv"><span>Solución</span><b>' + esc(c.solucion || '—') + '</b></div>' +
+          (c.resuelto_en ? '<div class="kv"><span>Resuelto el</span><b>' + esc(fmtDT(c.resuelto_en)) + '</b></div>' : '')
+        : '');
+
+    if (!resuelto) {
+      if (String(_casoEditando) === String(c.id)) {
+        html += '<div class="fld"><span>¿Qué se hizo para resolverlo? *</span>' +
+          '<textarea id="casoSolucion" rows="3" placeholder="Ej: Se volvió a visitar al cliente y se cambió la pieza sin costo."></textarea></div>' +
+          '<div class="btnrow">' +
+          '<button class="btn primary sm" data-act="caso-guardar" data-id="' + esc(c.id) + '">✅ Guardar solución</button>' +
+          '<button class="btn ghost sm" data-act="caso-cancelar">Cancelar</button>' +
+          '</div>';
+      } else {
+        html += '<div class="btnrow">' +
+          '<button class="btn primary sm" data-act="caso-resolver" data-id="' + esc(c.id) + '">✅ Resolver</button>' +
+          (c.id_informe ? '<a class="btn secondary sm" href="#/informe/' + esc(c.id_informe) + '">📄 Ver informe</a>' : '') +
+          '</div>';
+      }
+    } else {
+      html += '<div class="btnrow">' +
+        '<button class="btn ghost sm" data-act="caso-reabrir" data-id="' + esc(c.id) + '">Reabrir</button>' +
+        (c.id_informe ? '<a class="btn secondary sm" href="#/informe/' + esc(c.id_informe) + '">📄 Ver informe</a>' : '') +
+        '</div>';
+    }
+    html += '</div>';
+  });
+
+  html += '</div>';
   $('#view').innerHTML = html;
-  _padCliente = initPad('padCliente');
-}
-
-/* Marca en este navegador que ya se respondió y muestra el agradecimiento. */
-function confMarcarYGracias() {
-  try { localStorage.setItem('servitech_conf_' + _confToken, '1'); } catch (e) { }
-  confGracias();
-}
-
-/* Envía la respuesta del cliente y muestra la pantalla de agradecimiento. */
-function enviarConformidadCliente(form) {
-  var d = readForm(form);
-  var obs = (d.observacion || '').trim();
-  var nombre = String(d.nombre || '').trim();
-  var cargo = String(d.cargo || '').trim();
-  var conformidad = (d.conformidad === 'No conforme') ? 'No conforme' : 'Conforme';
-
-  if (conformidad === 'No conforme' && !obs) {
-    toast('Para marcar "No conforme" escriba primero una observación');
-    return;
-  }
-  if (!nombre) { toast('Escriba su nombre'); return; }
-
-  // Los mismos topes que exigen las reglas de Firestore: si se pasa de aquí,
-  // el guardado se rechazaría entero y el cliente se quedaría sin poder firmar.
-  if (nombre.length > 119) { toast('El nombre es demasiado largo (máximo 120 caracteres)'); return; }
-  if (cargo.length > 119) { toast('El cargo es demasiado largo (máximo 120 caracteres)'); return; }
-  if (obs.length > 1999) { toast('La observación es demasiado larga (máximo 2000 caracteres)'); return; }
-
-  var firma = _padCliente ? _padCliente.dataURL() : '';
-  if (!firma) { toast('Firme con el dedo en el recuadro'); return; }
-
-  var b = $('#confEnviar');
-  if (b) { b.disabled = true; b.textContent = 'Enviando…'; }
-
-  Cloud.crearRespuesta(_confUid, _confToken, {
-    conformidad: conformidad,
-    observacion: obs,
-    nombre: nombre,
-    cargo: cargo,
-    firma: firma,
-    recibido_en: Store.nowLocal()
-  }).then(function () {
-    confMarcarYGracias();
-  }).catch(function (e) {
-    var cod = (e && e.code) ? e.code : '';
-
-    // Volver a enviar no es un error real: su firma ya estaba registrada.
-    if (cod === 'already-exists') { confMarcarYGracias(); return; }
-
-    // "Permiso denegado" puede ser que ya se envió antes desde otro equipo,
-    // o que al técnico le falte publicar las reglas nuevas. Lo comprobamos
-    // leyendo el envío: eso sí está permitido sin sesión.
-    if (cod === 'permission-denied') {
-      Cloud.leerEnvio(_confUid, _confToken).then(function (env) {
-        if (env && env.estado && env.estado !== 'pendiente') { confMarcarYGracias(); return; }
-        if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
-        toast('No se pudo guardar la firma. Avisa al técnico: puede faltar un permiso por publicar.');
-      }).catch(function () {
-        if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
-        toast('No se pudo guardar la firma. Revisa tu conexión e inténtalo otra vez.');
-      });
-      return;
-    }
-
-    if (b) { b.disabled = false; b.textContent = 'Enviar conformidad'; }
-    toast('No se pudo enviar: ' + (e && e.message ? e.message : 'error de conexión') + '. Inténtalo otra vez.');
-  });
-}
-
-/* ---------- Envío desde el informe (lado del técnico) ---------- */
-
-function confNuevoToken() {
-  var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  var s = '';
-  var i;
-  var rnd = (window.crypto && window.crypto.getRandomValues) ? new Uint32Array(32) : null;
-  if (rnd) {
-    window.crypto.getRandomValues(rnd);
-    for (i = 0; i < 32; i++) s += abc.charAt(rnd[i] % abc.length);
-  } else {
-    for (i = 0; i < 32; i++) s += abc.charAt(Math.floor(Math.random() * abc.length));
-  }
-  return s;
-}
-
-/* Enlace público que se le manda al cliente. */
-function confEnlace(token) {
-  var uid = (window.Cloud && Cloud.status) ? (Cloud.status().uid || '') : '';
-  return location.origin + location.pathname + '?c=' + encodeURIComponent(token) + '&u=' + encodeURIComponent(uid);
-}
-
-function confUrlValida(u) {
-  return /^https?:\/\/.+/i.test(String(u || '').trim());
-}
-
-/* Crea (o reutiliza) el envío y manda el correo al cliente. */
-function confEnviarAlCliente(informeId) {
-  var x = Store.get('informes', informeId);
-  if (!x) return;
-
-  var mail = String((x.empresa || {}).email || '').trim();
-  if (!correoValido(mail)) {
-    toast('La empresa no tiene un correo válido. Edita la empresa y escribe uno.');
-    return;
-  }
-  if (!window.Cloud || !Cloud.crearEnvio) { toast('La app no cargó la parte de nube'); return; }
-  var st = Cloud.status ? Cloud.status() : {};
-  if (!st.connected || !st.uid) {
-    toast('Para pedir la conformidad hay que estar conectado en Ajustes → Nube');
-    return;
-  }
-
-  var c = x.conformidad_cliente || {};
-  var token = c.token || confNuevoToken();
-  var resumen = String(x.trabajo_realizado || x.solucion || '').trim();
-  if (resumen.length > 1200) resumen = resumen.slice(0, 1200) + '…';
-
-  var endpoints = String(Store.db.meta.endpoint_correo || '').trim();
-
-  var datos = {
-    estado: 'pendiente',
-    token: token,
-    email: mail,
-    contacto: String(x.nombre_responsable || (x.empresa || {}).persona_contacto || '').trim(),
-    empresa: String((x.empresa || {}).razon_social || ''),
-    codigo: String(x.codigo || ''),
-    fecha_servicio: x.fecha_servicio ? dayLabel(x.fecha_servicio) : '',
-    resumen: resumen,
-    monto_txt: (x.monto != null && x.monto !== '')
-      ? (String(x.moneda || 'S/ ') + Number(x.monto).toFixed(2)) : '',
-    tecnico: String(x.tecnico || Store.db.meta.tecnico || ''),
-    enlace: confEnlace(token),
-    creado_en: Store.nowLocal()
-  };
-
-  Cloud.crearEnvio(token, datos).then(function () {
-    var previo = x.conformidad_cliente || {};
-    Store.upd('informes', informeId, {
-      conformidad_cliente: {
-        estado: 'enviada',
-        token: token,
-        email: mail,
-        enviado_en: Store.nowLocal(),
-        enlace: datos.enlace,
-        respuesta: previo.respuesta || null
-      }
-    });
-
-    if (!confUrlValida(endpoints)) {
-      toast('Enlace listo. Falta configurar el envío en Ajustes: copia el enlace y mándalo tú.');
-      route();
-      return;
-    }
-
-    toast('Enviando el correo a ' + mail + '…');
-    fetch(endpoints, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: st.uid, token: token })
-    }).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        return { ok: r.ok, j: j || {} };
-      });
-    }).then(function (res) {
-      if (res.ok && res.j.ok) toast('Correo enviado a ' + mail);
-      else toast('No se pudo enviar el correo: ' + (res.j.error || 'revisa el endpoint en Ajustes'));
-      route();
-    }).catch(function () {
-      toast('No se pudo contactar con el endpoint. El enlace quedó listo: puedes copiarlo y mandarlo tú.');
-      route();
-    });
-  }).catch(function (e) {
-    toast('No se pudo registrar el envío en la nube: ' + (e && e.message ? e.message : 'error'));
-  });
-}
-
-/* Busca la respuesta del cliente en Firestore. */
-function confBuscarRespuesta(informeId, silencioso) {
-  var x = Store.get('informes', informeId);
-  if (!x || !x.conformidad_cliente || !x.conformidad_cliente.token) return;
-  if (!window.Cloud || !Cloud.leerRespuesta) return;
-  if (!silencioso) toast('Buscando la respuesta del cliente…');
-
-  var c = x.conformidad_cliente;
-  Cloud.leerRespuesta(c.token).then(function (r) {
-    if (!r) { if (!silencioso) toast('El cliente todavía no ha respondido'); return; }
-    var nueva = {
-      estado: 'recibida',
-      token: c.token,
-      email: c.email,
-      enviado_en: c.enviado_en,
-      enlace: c.enlace,
-      respuesta: {
-        conformidad: r.conformidad === 'No conforme' ? 'No conforme' : 'Conforme',
-        observacion: r.observacion || '',
-        nombre: r.nombre || '',
-        cargo: r.cargo || '',
-        firma: r.firma || '',
-        recibido_en: r.recibido_en || ''
-      }
-    };
-    Store.upd('informes', informeId, { conformidad_cliente: nueva });
-    // El envío deja de estar pendiente: así, si el cliente vuelve a abrir el
-    // enlace (o lo abre en otro equipo), su página dirá que ya está registrado.
-    if (window.Cloud && Cloud.actualizarEnvio) {
-      Cloud.actualizarEnvio(c.token, { estado: 'respondido', respondido_en: Store.nowLocal() });
-    }
-    if (!silencioso) toast('Conformidad recibida del cliente');
-    route();
-  }).catch(function (e) {
-    if (!silencioso) toast('No se pudo consultar la respuesta: ' + (e && e.message ? e.message : 'error'));
-  });
-}
-
-/* Vuelca la respuesta del cliente al informe y lo cierra. */
-function confCerrarInforme(informeId) {
-  var x = Store.get('informes', informeId);
-  if (!x || !x.conformidad_cliente || !x.conformidad_cliente.respuesta) return;
-  var r = x.conformidad_cliente.respuesta;
-  var c = x.conformidad_cliente;
-
-  Store.upd('informes', informeId, {
-    conformidad: (r.conformidad === 'No conforme') ? 'No conforme' : 'Conforme',
-    // Si el cliente no escribió nada, se conserva lo que ya tenía el informe:
-    // un campo vacío no debe borrar el trabajo del técnico.
-    observaciones_conformidad: r.observacion ? r.observacion : (x.observaciones_conformidad || ''),
-    nombre_responsable: r.nombre || x.nombre_responsable || '',
-    cargo_responsable: r.cargo ? r.cargo : (x.cargo_responsable || ''),
-    firma_responsable: r.firma || x.firma_responsable || '',
-    fecha_modificacion: Store.nowLocal(),
-    conformidad_cliente: {
-      estado: 'cerrada',
-      token: c.token,
-      email: c.email,
-      enviado_en: c.enviado_en,
-      enlace: c.enlace,
-      respuesta: r,
-      cerrado_en: Store.nowLocal()
-    }
-  });
-
-  // El envío deja de estar pendiente (el correo ya no debe reenviarse).
-  if (window.Cloud && Cloud.actualizarEnvio && c.token) {
-    Cloud.actualizarEnvio(c.token, { estado: 'respondido', respondido_en: Store.nowLocal() });
-  }
-
-  toast('Informe cerrado con la conformidad del cliente');
-  route();
-}
-
-/* Tarjeta de conformidad del cliente dentro del informe. */
-function confClienteHtml(x) {
-  var c = x.conformidad_cliente || {};
-  var est = c.estado || 'no_enviada';
-  var idt = esc(x.id);
-
-  var html = '<div class="rep-sec-card conf-card">' +
-    '<div class="rep-sec-header">' +
-    '<svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5.3 3.4 9.6 8 10 4.6-.4 8-4.7 8-10V6zm-1 13-3.5-3.5 1.4-1.4L11 12.2l4.1-4.1 1.4 1.4z"/></svg>' +
-    'Conformidad del cliente</div><div class="conf-body">';
-
-  if (est === 'no_enviada') {
-    html += '<p class="hint">Manda al cliente un enlace para que confirme el servicio y firme desde su propio celular. Cuando responda, la conformidad, la observación y su firma entran solas a este informe.</p>' +
-      '<div class="btnrow no-print"><button class="btn primary sm" data-act="conf-pedir" data-id="' + idt + '">✉️ Pedir conformidad al cliente</button></div>';
-  } else if (est === 'enviada') {
-    html += '<p><span class="badge warn">⏳ Esperando respuesta del cliente</span></p>' +
-      '<div class="kv"><span>Enviado a</span><b>' + esc(c.email || '—') + '</b></div>' +
-      (c.enviado_en ? '<div class="kv"><span>Fecha de envío</span><b>' + esc(fmtDT(c.enviado_en)) + '</b></div>' : '') +
-      '<p class="hint">Todavía no ha firmado. Cuando lo haga, esta tarjeta cambiará sola al abrir el informe.</p>' +
-      '<div class="btnrow no-print">' +
-      '<button class="btn secondary sm" data-act="conf-buscar" data-id="' + idt + '">🔄 Buscar respuesta</button>' +
-      '<button class="btn ghost sm" data-act="conf-reenviar" data-id="' + idt + '">Reenviar correo</button>' +
-      '<button class="btn ghost sm" data-act="conf-copiar" data-id="' + idt + '">Copiar enlace</button>' +
-      '</div>';
-  } else if (est === 'recibida') {
-    var r = c.respuesta || {};
-    html += '<p><span class="badge ok">✅ Conformidad recibida del cliente</span></p>' +
-      '<div class="kv"><span>Respuesta</span><b>' + (r.conformidad === 'No conforme' ? '⚠️ No conforme' : '✅ Conforme') + '</b></div>' +
-      (r.observacion ? '<div class="kv"><span>Observación</span><b>' + esc(r.observacion) + '</b></div>' : '') +
-      '<div class="kv"><span>Firmado por</span><b>' + esc(r.nombre || '—') + (r.cargo ? ' (' + esc(r.cargo) + ')' : '') + '</b></div>' +
-      (r.recibido_en ? '<div class="kv"><span>Recibido</span><b>' + esc(fmtDT(r.recibido_en)) + '</b></div>' : '') +
-      '<div class="conf-firma">' + (r.firma ? '<img src="' + r.firma + '" alt="Firma del cliente">' : '<span>Sin firma</span>') + '</div>' +
-      '<p class="hint">Revisa que corresponda a este informe: al cerrar, estos datos pasan al informe y quedan en el PDF.</p>' +
-      '<div class="btnrow no-print">' +
-      '<button class="btn primary sm" data-act="conf-cerrar" data-id="' + idt + '">✅ Revisar y cerrar informe</button>' +
-      '<button class="btn ghost sm" data-act="conf-descartar" data-id="' + idt + '">Descartar respuesta</button>' +
-      '</div>';
-  } else {
-    html += '<p><span class="badge ok">🔒 Conformidad cerrada</span></p>' +
-      '<div class="kv"><span>Respuesta</span><b>' + ((x.conformidad === 'No conforme') ? '⚠️ No conforme' : '✅ Conforme') + '</b></div>' +
-      '<div class="kv"><span>Firmado por</span><b>' + esc(x.nombre_responsable || '—') + '</b></div>' +
-      '<div class="kv"><span>Recibida por correo</span><b>' + esc(c.email || '—') + '</b></div>' +
-      (c.cerrado_en ? '<div class="kv"><span>Cerrado</span><b>' + esc(fmtDT(c.cerrado_en)) + '</b></div>' : '');
-  }
-
-  return html + '</div></div>';
 }
 
 /* =========================================================
@@ -2829,11 +2902,8 @@ function vAjustes() {
   var html = '<div class="stack">' +
     '<form class="card pad" data-f="aj">' +
     '<h2 class="sec">Datos por defecto</h2>' +
-    field('Tu nombre (técnico)', 'tecnico', m.tecnico, 'text', 'Aparecerá en tareas e informes') +
+    field('Tu nombre (técnico)', 'tecnico', m.tecnico, 'text', 'Aparecerá en servicios e informes') +
     field('Símbolo de moneda', 'currency', m.currency, 'text', 'Ej: S/  o  US$') +
-    '<h2 class="sec">Correo de conformidad</h2>' +
-    field('Dirección del endpoint de envío', 'endpoint_correo', m.endpoint_correo, 'url', 'https://tu-dominio.com/servitech/enviar.php') +
-    '<p class="hint">Es el archivo <b>enviar.php</b> de tu hosting (los pasos están en <b>hosting-php/INSTALACION.md</b>). Si lo dejas vacío, el informe igual genera el enlace de conformidad y podrás copiarlo para mandarlo tú por WhatsApp o correo.</p>' +
     '<button class="btn primary block" type="submit">Guardar</button></form>' +
     '<div class="card pad"><h2 class="sec">Nube</h2>' +
     '<div id="cloudBox"><p class="hint">Cargando…</p></div></div>' +
@@ -2998,7 +3068,7 @@ function renderCloudBox() {
   if (s.connected) {
     h += '<p class="hint">' + (s.live
       ? 'Sincronización activa en tiempo real: lo que cambies aquí aparece en tu otro equipo en segundos.'
-      : 'Tus datos de empresas, tareas, repuestos e informes se sincronizan con esta cuenta.') +
+      : 'Tus datos de empresas, servicios, repuestos e informes se sincronizan con esta cuenta.') +
       ' Usa <b>la misma cuenta</b> en el otro equipo para ver exactamente lo mismo.</p>' +
       '<p class="hint">¿No ves los datos del otro equipo? Comprueba que el correo de arriba sea <b>exactamente el mismo</b> que usaste allí.</p>' +
       (s.lastMerge ? '<p class="hint">Se combinaron registros de otro equipo: ' + fmtMs(s.lastMerge) + '</p>' : '') +
@@ -3046,7 +3116,7 @@ document.addEventListener('click', function (e) {
   var id = b.dataset.id;
 
   if (act === 'del-emp') {
-    confirmBox('Eliminar empresa', 'Se borrarán también sus equipos, tareas, repuestos e informes. Esta acción no se puede deshacer.', function () {
+    confirmBox('Eliminar empresa', 'Se borrarán también sus equipos, servicios, repuestos e informes. Esta acción no se puede deshacer.', function () {
       var db = Store.db;
       var emp = Store.get('empresas', id);
       if (!emp) return;
@@ -3060,7 +3130,7 @@ document.addEventListener('click', function (e) {
     });
   }
   else if (act === 'del-equipo') {
-    confirmBox('Eliminar equipo', 'Se quitará el equipo y se desvinculará de sus tareas.', function () {
+    confirmBox('Eliminar equipo', 'Se quitará el equipo y se desvinculará de sus servicios.', function () {
       var db = Store.db;
       db.tareas.forEach(function (t) { if (String(t.id_equipo) === String(id)) t.id_equipo = ''; });
       db.repuestos = db.repuestos.filter(function (r) { return String(r.id_equipo) !== String(id) || r.id_tarea; });
@@ -3070,12 +3140,12 @@ document.addEventListener('click', function (e) {
     });
   }
   else if (act === 'del-tarea') {
-    confirmBox('Eliminar tarea', 'Se borrarán sus repuestos e informes asociados.', function () {
+    confirmBox('Eliminar servicio', 'Se borrarán sus repuestos e informes asociados.', function () {
       var db = Store.db;
       db.repuestos = db.repuestos.filter(function (r) { return String(r.id_tarea) !== String(id); });
       db.informes = db.informes.filter(function (x) { return String(x.id_tarea) !== String(id); });
       Store.del('tareas', id);
-      toast('Tarea eliminada');
+      toast('Servicio eliminado');
       location.hash = '#/tareas';
     });
   }
@@ -3087,7 +3157,7 @@ document.addEventListener('click', function (e) {
     });
   }
   else if (act === 'del-inf') {
-    confirmBox('Eliminar informe', 'La tarea asociada volverá a estado pendiente.', function () {
+    confirmBox('Eliminar informe', 'El servicio asociado volverá a estado pendiente.', function () {
       var x = Store.get('informes', id);
       if (x) Store.upd('tareas', x.id_tarea, { estado: 'Pendiente', informe_emitido: false });
       Store.del('informes', id);
@@ -3223,61 +3293,28 @@ document.addEventListener('click', function (e) {
       location.hash = '#/empresas';
     }, 'Borrar todo');
   }
-  /* ---------- conformidad del cliente ---------- */
-  else if (act === 'conf-pedir' || act === 'conf-reenviar') {
-    var xc = Store.get('informes', id);
-    if (!xc) return;
-    var mailc = String(((xc.empresa || {}).email) || '').trim();
-    if (!correoValido(mailc)) {
-      toast('La empresa no tiene un correo válido. Edítala y escribe uno.');
-      return;
-    }
-    if (window.Cloud && Cloud.status && !Cloud.status().connected) {
-      toast('Primero conéctate a la nube en Ajustes (la respuesta del cliente llega por ahí)');
-      return;
-    }
-    var sinEndpoint = !confUrlValida(Store.db.meta.endpoint_correo);
-    confirmBox(
-      act === 'conf-reenviar' ? 'Reenviar correo al cliente' : 'Pedir conformidad al cliente',
-      'Se enviará un correo a ' + mailc + ' con un enlace para que confirme el servicio y firme desde su celular.' +
-      (sinEndpoint ? ' Todavía no has configurado el endpoint de envío en Ajustes, así que solo se generará el enlace (después podrás copiarlo).' : ''),
-      function () { confEnviarAlCliente(id); },
-      act === 'conf-reenviar' ? 'Reenviar' : 'Enviar'
-    );
+  /* ---------- centro de soluciones ---------- */
+  else if (act === 'caso-resolver') {
+    _casoEditando = id;
+    route();
   }
-  else if (act === 'conf-buscar') {
-    confBuscarRespuesta(id, false);
+  else if (act === 'caso-cancelar') {
+    _casoEditando = null;
+    route();
   }
-  else if (act === 'conf-copiar') {
-    var xl = Store.get('informes', id);
-    var enlace = (xl && xl.conformidad_cliente && xl.conformidad_cliente.enlace) ? xl.conformidad_cliente.enlace : '';
-    if (!enlace) { toast('Todavía no hay enlace. Pulsa primero "Pedir conformidad al cliente".'); return; }
-    copiarTexto(enlace, 'Enlace de conformidad copiado. Ya puedes mandarlo por WhatsApp o correo.');
+  else if (act === 'caso-guardar') {
+    var taCaso = $('#casoSolucion');
+    var txtCaso = taCaso ? String(taCaso.value || '').trim() : '';
+    if (!txtCaso) { toast('Escribe qué se hizo para resolverlo'); return; }
+    Store.upd('casos', id, { estado: 'Resuelto', solucion: txtCaso, resuelto_en: Store.nowLocal() });
+    _casoEditando = null;
+    toast('Caso marcado como resuelto');
+    route();
   }
-  else if (act === 'conf-cerrar') {
-    confirmBox('Cerrar el informe con la conformidad del cliente',
-      'La conformidad, la observación, el nombre y la firma del cliente pasarán al informe y quedarán en el PDF. Después el informe figura como cerrado.',
-      function () { confCerrarInforme(id); }, 'Cerrar informe');
-  }
-  else if (act === 'conf-descartar') {
-    confirmBox('Descartar la respuesta del cliente',
-      'Se quitará esta respuesta del informe. El enlace seguirá válido: si el cliente vuelve a firmar, podrás recuperarla.',
-      function () {
-        var xd = Store.get('informes', id);
-        if (!xd || !xd.conformidad_cliente) return;
-        var cd = xd.conformidad_cliente;
-        Store.upd('informes', id, {
-          conformidad_cliente: { estado: 'enviada', token: cd.token, email: cd.email, enviado_en: cd.enviado_en, enlace: cd.enlace, respuesta: null }
-        });
-        if (window.Cloud && Cloud.actualizarEnvio && cd.token) {
-          Cloud.actualizarEnvio(cd.token, { estado: 'pendiente' });
-        }
-        toast('Respuesta descartada');
-        route();
-      }, 'Descartar');
-  }
-  else if (act === 'conf-limpiar') {
-    if (_padCliente) { _padCliente.clear(); toast('Firma borrada'); }
+  else if (act === 'caso-reabrir') {
+    Store.upd('casos', id, { estado: 'Pendiente', solucion: '', resuelto_en: '' });
+    toast('Caso reabierto');
+    route();
   }
   else if (act === 'print') { window.print(); }
   else if (act === 'pdf-dl') {
@@ -3297,6 +3334,10 @@ document.addEventListener('click', function (e) {
   else if (act === 'wa-share') {
     var x = Store.get('informes', id);
     if (!x) return;
+    if (x.conformidad === 'Pendiente') {
+      toast('Falta la conformidad del cliente: pídesela por enlace o espera los 2 días calendario.');
+      return;
+    }
     toast('Generando PDF para WhatsApp…');
     generateReportPdf(x, function (err, pdfDoc) {
       var filename = 'Informe_' + (x.codigo || 'Servitech') + '.pdf';
@@ -3373,7 +3414,6 @@ document.addEventListener('submit', function (e) {
   else if (kind === 'tar') saveTarea(f);
   else if (kind === 'rep') saveRepuesto(f);
   else if (kind === 'inf') saveInforme(f);
-  else if (kind === 'conf') enviarConformidadCliente(f);
   else if (kind === 'sel-inf-emp') {
     var selEmp = $('select[name=empresa]', f);
     var inpFecha = $('input[name=fecha]', f);
@@ -3391,7 +3431,6 @@ document.addEventListener('submit', function (e) {
     var m = Store.db.meta;
     m.tecnico = f.tecnico.value;
     m.currency = f.currency.value || 'S/ ';
-    m.endpoint_correo = String(f.endpoint_correo.value || '').trim();
     Store.save();
     toast('Ajustes guardados');
     route();

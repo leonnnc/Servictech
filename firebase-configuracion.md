@@ -62,21 +62,18 @@ const firebaseConfig = {
    entero: es la fuente de verdad (no copies solo un trozo).
 3. Clic en **Publicar**.
 
-> **Si ya tenías publicadas las reglas anteriores, hay que volver a publicarlas.**
-> Las reglas nuevas añaden las dos zonas que permiten al cliente devolver su
-> conformidad desde el enlace (ver *Conformidad del cliente* más abajo). Sin
-> republicar, la app mostrará *"Missing or insufficient permissions"* al pedir
-> la conformidad.
+ > **Si ya tenías publicadas las reglas anteriores, hay que volver a publicarlas.**
+> Las reglas ya no abren las zonas públicas `envios/` y `respuestas/`, que eran del
+> enlace de conformidad; esa función se quitó (la conformidad se firma en el sitio,
+> dentro de la app). Mientras no las republicues, la sincronización seguirá
+> funcionando, pero quedarán rutas públicas abiertas de más.
 
-Las reglas definen **solo tres zonas**:
+Las reglas definen **dos zonas**:
 
 | Zona | Ruta | Quién puede |
 |---|---|---|
 | Tus datos | `users/{uid}/app/**` | Solo tú, con sesión iniciada |
-| Envío de conformidad | `users/{uid}/envios/{token}` | Tú creas, editas y borras. El cliente **solo puede leer ese documento**, y únicamente si tiene el token exacto; nunca puede listar |
-| Respuesta del cliente | `users/{uid}/respuestas/{token}` | El cliente **solo puede crear una vez**, y solo si ese envío existe y sigue pendiente. No puede leer, editar ni borrar |
-
-Todo lo demás queda cerrado explícitamente con `allow read, write: if false`.
+| Todo lo demás | `/{document=**}` | Nadie (`allow read, write: if false`) |
 
 > El comodín `{document=**}` en `users/{uid}/app/{document=**}` es obligatorio para que la regla alcance también a las subcolecciones; con solo `match /users/{uid}` la app daría "Permiso denegado".
 
@@ -89,26 +86,19 @@ powershell -ExecutionPolicy Bypass -File pruebas\verificar-sincronizacion.ps1
 ```
 
 El script crea un usuario de prueba, escribe y lee un documento con la misma
-forma que usa la app, e intenta (debiendo fallar) tocar datos de otro usuario.
-Si las reglas están bien, verás `RESULTADO: 4 correctas, 0 fallidas`.
+forma que usa la app, intenta (debiendo fallar) tocar datos de otro usuario y
+comprueba que las rutas públicas antiguas ya no existen. Si las reglas están
+bien, verás `RESULTADO: 7 correctas, 0 fallidas`.
 
 
-Con esto, **solo tu usuario** puede leer y escribir tus datos; nadie más, aunque conozca el enlace. Las dos únicas excepciones son las acotadas que hacen posible la firma del cliente: leer un envío concreto si se conoce su token, y crear una respuesta a un envío que sigue pendiente. Ninguna de las dos permite ver ni tocar nada más.
+Con esto, **solo tu usuario** puede leer y escribir tus datos; nadie más, aunque conozca el enlace. No hay ninguna zona pública: la conformidad del cliente se firma en el sitio, dentro de la app, así que el cliente nunca escribe en tu base de datos.
 
-## Conformidad del cliente
+## Conformidad del servicio
 
-Esta función deja que el cliente confirme y firme el servicio desde su propio celular, en lugar de que firme en el tuyo:
-
-1. En el informe, pulsas **Pedir conformidad al cliente**.
-2. Se le envía un correo con un enlace único (el **token**).
-3. El cliente abre el enlace, marca *Conforme* o *No conforme*, escribe su observación y firma con el dedo.
-4. Su respuesta entra a tu Firestore y la app la marca como **Conformidad recibida**.
-5. Revisas y pulsas **Revisar y cerrar informe**: la conformidad, la observación y la firma se vuelcan al informe y quedan en el PDF con constancia de quién y cuándo firmó.
-
-Para que el correo salga hace falta el endpoint PHP de tu hosting: ver
-[`hosting-php/INSTALACION.md`](hosting-php/INSTALACION.md). Sin ese endpoint, el
-botón de enviar avisará de que falta configurarlo, pero **el resto del circuito
-se puede probar igual** copiando el enlace a mano.
+Se recoge **en el sitio**: el cliente está delante, marcas *Conforme* o *No conforme*,
+se escribe la observación si hace falta y el cliente firma con el dedo en tu celular
+(nombre y firma obligatorios). Nada viaja por correo ni por enlaces públicos; el informe
+queda cerrado con su número correlativo en el momento.
 
 ## Paso 6 — Autorizar el dominio de tu app publicada
 

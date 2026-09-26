@@ -3,6 +3,9 @@ pruebas/
 *.log
 server-err.log
 
+# paquetes de producción generados (se rehacen cuando haga falta)
+*.zip
+
 # datos locales y respaldos (nunca publicar: contienen datos de clientes)
 respaldos/
 capturas/

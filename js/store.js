@@ -4,13 +4,13 @@
    ========================================================= */
 window.Store = (function () {
   var KEY = 'servitech_db_v1';
-  var SEQKEY = { empresas: 'emp', equipos: 'equ', tareas: 'tar', repuestos: 'rep', informes: 'inf' };
+  var SEQKEY = { empresas: 'emp', equipos: 'equ', tareas: 'tar', repuestos: 'rep', informes: 'inf', casos: 'cas' };
 
   function empty() {
     return {
       v: 1,
-      meta: { seq: { emp: 0, equ: 0, tar: 0, rep: 0, inf: 0 }, year: new Date().getFullYear(), nextInf: 1, tecnico: '', currency: 'S/ ' },
-      empresas: [], equipos: [], tareas: [], repuestos: [], informes: []
+      meta: { seq: { emp: 0, equ: 0, tar: 0, rep: 0, inf: 0, cas: 0 }, year: new Date().getFullYear(), nextInf: 1, tecnico: '', currency: 'S/ ' },
+      empresas: [], equipos: [], tareas: [], repuestos: [], informes: [], casos: []
     };
   }
 
@@ -18,7 +18,12 @@ window.Store = (function () {
 
   function ensureMeta() {
     var m = db.meta || (db.meta = {});
-    m.seq = m.seq || { emp: 0, equ: 0, tar: 0, rep: 0, inf: 0 };
+    m.seq = m.seq || { emp: 0, equ: 0, tar: 0, rep: 0, inf: 0, cas: 0 };
+    // Colecciones que deben existir siempre (una base importada de una versión
+    // anterior puede no traerlas: sin esto, agregar un registro fallaría).
+    ['empresas', 'equipos', 'tareas', 'repuestos', 'informes', 'casos'].forEach(function (k) {
+      if (!Array.isArray(db[k])) db[k] = [];
+    });
     if (!m.currency) m.currency = 'S/ ';
     if (!m.nextInf) m.nextInf = 1;
     if (!m.year) m.year = new Date().getFullYear();
@@ -57,7 +62,7 @@ window.Store = (function () {
     catch (e) { db = empty(); }
     if (!db.v) db.v = 1;
     if (!db.meta) db.meta = empty().meta;
-    ['empresas', 'equipos', 'tareas', 'repuestos', 'informes'].forEach(function (k) {
+    ['empresas', 'equipos', 'tareas', 'repuestos', 'informes', 'casos'].forEach(function (k) {
       if (!Array.isArray(db[k])) db[k] = [];
     });
     ensureMeta();
@@ -145,6 +150,8 @@ window.Store = (function () {
     var t2 = add('tareas', { id_empresa: e2.id, id_equipo: q3.id, tipo_tarea: 'Correctivo', prioridad: 'Media', estado: 'Pendiente', descripcion_trabajo: 'No imprime tickets, error de corte de papel.', novedad: '', trabajo_realizado: '', solucion: '', equipo_operativo: '', recomendaciones: '', tecnico_responsable: 'Tú', fecha_creacion: '2026-09-08', fecha_programada: '2026-09-11', fecha_inicio: '', fecha_fin: '', informe_emitido: false });
     add('repuestos', { id_tarea: t1.id, id_equipo: q1.id, descripcion_pieza: 'Bloque de baterías UPS APC RBC110', referencia: 'RBC110', cantidad: 1, precio_unitario: 420, proveedor: 'Distribuidora Andina', estado_pedido: 'Cambiado', fecha_pedido: '2026-09-03', fecha_llegada: '2026-09-04', notas_repuesto: '' });
     add('repuestos', { id_tarea: t2.id, id_equipo: q3.id, descripcion_pieza: 'Cabezal térmico impresora POS', referencia: 'HT-58MM', cantidad: 1, precio_unitario: 85, proveedor: 'Importec', estado_pedido: 'Por comprar', fecha_pedido: '', fecha_llegada: '', notas_repuesto: 'Confirmar modelo antes de comprar.' });
+    // Un caso de ejemplo para ver el centro de soluciones con datos.
+    add('casos', { id_informe: '', token: '', codigo: '', id_empresa: e2.id, empresa: e2.razon_social, tipo: 'Queja', texto: 'El equipo quedó operativo, pero el cliente pide que la próxima visita sea fuera del horario de atención.', conformidad: 'No conforme', cliente: 'Carlos Ríos', cargo: 'Gerente', abierto_en: '2026-09-20T16:40', estado: 'Pendiente', solucion: '', resuelto_en: '' });
     return db;
   }
 
@@ -173,12 +180,27 @@ window.Store = (function () {
     return groups.map(function (g) { return g.fecha; });
   }
 
+  /* Mes (YYYY-MM) al que pertenece un servicio, según su fecha de trabajo */
+  function mesDe(t) {
+    var f = (t && (t.fecha_trabajo || t.fecha_programada || t.fecha_creacion)) || today();
+    return String(f).slice(0, 7);
+  }
+
+  /* Servicios de un mes. Sin idEmpresa devuelve los de todos los clientes. */
+  function tareasDeMes(idEmpresa, mes) {
+    return db.tareas.filter(function (t) {
+      if (idEmpresa && String(t.id_empresa) !== String(idEmpresa)) return false;
+      return mesDe(t) === String(mes);
+    });
+  }
+
   load();
   return {
     get db() { return db; },
     load: load, save: save, coll: coll, get: get, add: add, upd: upd, del: del,
     today: today, nowLocal: nowLocal, exportJSON: exportJSON, importJSON: importJSON,
     reset: reset, nextInfCode: nextInfCode, demo: demo,
-    getTareasPorFecha: getTareasPorFecha, getFechasEmpresa: getFechasEmpresa
+    getTareasPorFecha: getTareasPorFecha, getFechasEmpresa: getFechasEmpresa,
+    mesDe: mesDe, tareasDeMes: tareasDeMes
   };
 })();

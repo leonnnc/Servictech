@@ -1,4 +1,11 @@
-# Endpoint de envío de correo (conformidad del cliente)
+# Endpoint de envío de correo (conformidad del cliente) — EN DESUSO
+
+> **Ya no hace falta.** Este endpoint enviaba el correo con el enlace para que el
+> cliente firmara desde su celular. En la versión actual la conformidad se firma
+> **en el sitio**, dentro de la app (el cliente marca *Conforme* / *No conforme* y
+> firma en tu celular), así que no hay enlace ni correo que enviar.
+> El documento se conserva solo como referencia: no lo instales y no configures
+> nada en Ajustes por esto.
 
 Este es el único trozo de Servitech que **no** vive en GitHub Pages, porque
 GitHub Pages solo sirve archivos estáticos y no ejecuta PHP. Son dos archivos

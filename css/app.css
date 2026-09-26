@@ -122,6 +122,10 @@ a.brand:hover { opacity: .88; }
   font-size: 9.5px;
   white-space: nowrap;
   letter-spacing: -0.2px;
+  /* "Servicios" es la etiqueta más larga del dock: en pantallas muy angostas
+     se recorta en lugar de encimarse con la pestaña vecina. */
+  max-width: 100%;
+  overflow: hidden;
 }
 .tab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
 .tab.active { color: var(--teal-dk); font-weight: 700; }
@@ -341,6 +345,18 @@ canvas.sig {
 }
 .rep-conf-si { background: #DCFCE7; color: #166534; border: 1.5px solid #86EFAC; }
 .rep-conf-no { background: #FEE2E2; color: #991B1B; border: 1.5px solid #FCA5A5; }
+/* Conformidad todavía no recibida (se pidió por enlace) */
+.rep-conf-pend { background: #FEF3C7; color: #92400E; border: 1.5px solid #FCD34D; }
+/* Cerrada por falta de respuesta del cliente (2 días calendario) */
+.rep-conf-auto { background: #E0F2FE; color: #075985; border: 1.5px solid #7DD3FC; }
+
+/* Centro de soluciones: texto que dejó el cliente */
+.caso-texto {
+  background: #F8FAFC; border-left: 3px solid #CBD5E1; border-radius: 8px;
+  padding: 9px 11px; font-size: 13.5px; color: #334155; white-space: pre-wrap;
+  margin: 8px 0 10px;
+}
+.caso-texto.queja { border-left-color: #EF4444; background: #FEF7F7; color: #7F1D1D; }
 
 /* Selector de conformidad interactivo */
 .conformidad-selector {
@@ -624,6 +640,41 @@ body.cover main { padding: 0; }
   border-bottom: 1px solid var(--line);
 }
 .day-items .card.row:last-child { border-bottom: none; }
+
+/* ---------- servicios juntados por mes (vista mensual) ---------- */
+.mes-sub { font-size: 12px; font-weight: 700; color: var(--teal-dk); }
+.mes-emp { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.mes-emp:last-child { border-bottom: none; }
+.mes-emp-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap;
+}
+.mes-emp-main { min-width: 0; }
+.mes-emp-main .t { font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.mes-emp-main .s {
+  font-size: 12px; color: var(--ink2); margin-top: 3px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.mes-emp-days { margin-top: 9px; display: flex; flex-direction: column; gap: 6px; }
+.mes-day-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #F8FBFA; border: 1px solid var(--line); border-radius: 9px;
+  padding: 7px 10px; font-size: 12.5px; color: var(--ink2);
+  transition: background .15s;
+}
+.mes-day-row:active { background: var(--teal-soft); }
+.mes-day-row .d { font-weight: 700; color: var(--teal-dk); }
+.mes-day-row .m { flex: 1; }
+.mes-day-row .go { font-size: 13px; }
+
+/* total general del resumen de servicios */
+.resumen-total {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 14px; padding: 12px 16px; border-radius: 12px;
+  background: var(--teal-soft); color: var(--teal-dk);
+  font-weight: 700; font-size: 13.5px;
+}
+.resumen-total b { font-size: 18px; }
 
 /* Enumeración visual de elementos (#1, #2...) */
 .item-num {
@@ -980,56 +1031,3 @@ body.cover main { padding: 0; }
     max-width: 100% !important;
   }
 }
-
-/* =========================================================
-   CONFORMIDAD DEL CLIENTE
-   ========================================================= */
-
-/* Página pública (la que abre el cliente en su celular, sin sesión):
-   se esconde todo el armazón de la app para que se vea como un formulario. */
-body.modo-publico #tabbar,
-body.modo-publico .top-actions,
-body.modo-publico #syncBanner { display: none !important; }
-body.modo-publico .stack { max-width: 640px; margin: 0 auto; }
-body.modo-publico main { padding-bottom: 32px; }
-
-.conf-kicker {
-  display: inline-block; font-size: 11.5px; font-weight: 800; letter-spacing: .6px;
-  text-transform: uppercase; color: #0F766E; background: #CCFBF1;
-  padding: 3px 10px; border-radius: 999px;
-}
-.conf-emp { margin: 10px 0 0; font-size: 21px; line-height: 1.25; }
-
-.conf-bloque {
-  margin-top: 14px; background: #F4FAF7; border-left: 3px solid #0F766E;
-  border-radius: 8px; padding: 10px 14px;
-}
-.conf-bloque p { margin: 4px 0 0; white-space: pre-wrap; font-size: 14px; }
-.conf-lbl { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: #4B5A57; }
-
-.conf-monto {
-  margin-top: 12px; display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap; border-left: 4px solid #0F766E; background: #F0FDFA;
-  border-radius: 8px; padding: 10px 14px;
-}
-.conf-monto b { font-size: 20px; font-weight: 800; color: #0F766E; white-space: nowrap; }
-
-.sig-wrap { margin-top: 6px; }
-.sig-clear { display: block !important; margin: 8px 0 0 !important; }
-
-.conf-gracias { text-align: center; }
-.conf-ok-mark {
-  width: 64px; height: 64px; margin: 4px auto 12px; border-radius: 50%;
-  background: #DCFCE7; color: #15803D; font-size: 34px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
-}
-.conf-gracias h2 { margin: 0 0 6px; font-size: 19px; }
-
-/* Tarjeta de conformidad dentro del informe (lado del técnico) */
-.conf-card { border-left: 4px solid #0F766E; }
-.conf-body { padding: 12px 16px; }
-.conf-firma {
-  margin: 12px 0 4px; border: 1px solid #E3EDE9; border-radius: 14px;
-  background: #FAFDFB; padding: 8px; text-align: center;
-}
-.conf-firma img { max-width: 260px; width: 100%; height: auto; }

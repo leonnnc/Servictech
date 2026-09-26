@@ -12,12 +12,12 @@
    entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
-  var VERSION = 'v1.1';
+  var VERSION = 'v1.4';
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
   var POLL_MS = 60000;
-  var COLS = ['empresas', 'equipos', 'tareas', 'repuestos', 'informes'];
+  var COLS = ['empresas', 'equipos', 'tareas', 'repuestos', 'informes', 'casos'];
 
   var st = {
     ready: false, loading: false, user: null, lastSync: 0, error: '', errorCode: '',
@@ -550,8 +550,8 @@ window.Cloud = (function () {
     l.push('');
     l.push('DATOS EN ESTE DISPOSITIVO:');
     l.push('  Empresas: ' + d.registros.empresas + ' · Equipos: ' + d.registros.equipos +
-      ' · Tareas: ' + d.registros.tareas + ' · Repuestos: ' + d.registros.repuestos +
-      ' · Informes: ' + d.registros.informes);
+      ' · Servicios: ' + d.registros.tareas + ' · Repuestos: ' + d.registros.repuestos +
+      ' · Informes: ' + d.registros.informes + ' · Casos: ' + d.registros.casos);
     l.push('  Total: ' + d.total);
     l.push('  updatedAt (último cambio local): ' + d.updatedAt);
     l.push('  syncedAt (versión que se sincronizó): ' + d.syncedAt);
@@ -570,77 +570,12 @@ window.Cloud = (function () {
   });
   window.addEventListener('online', function () { if (st.user) pull(false); });
 
-  /* =========================================================
-     CONFORMIDAD DEL CLIENTE
-     Van aparte del documento principal, en dos subcolecciones,
-     porque el cliente tiene que poder responder SIN sesión:
-       users/{uid}/envios/{token}      lo lee el cliente con el token
-       users/{uid}/respuestas/{token}  lo crea el cliente una sola vez
-     Lo que se permite exactamente lo fija firestore.rules.
-     ========================================================= */
-
-  async function fsListo() {
-    await init();
-    if (!fb.mod || !fb.db) throw new Error('nube-no-configurada');
-    return fb.mod.fsMod;
-  }
-
-  /* Lee un envío. Funciona también SIN sesión: la regla deja leerlo
-     a quien conozca el token exacto (es la llave del enlace). */
-  async function leerEnvio(uid, token) {
-    if (!uid || !token) return null;
-    var fsMod = await fsListo();
-    var snap = await fsMod.getDoc(fsMod.doc(fb.db, 'users', uid, 'envios', token));
-    return snap.exists() ? snap.data() : null;
-  }
-
-  /* Crea o reemplaza el envío. Requiere sesión: es tu propio espacio. */
-  async function crearEnvio(token, datos) {
-    if (!st.user) throw new Error('sin-sesion');
-    if (!token) throw new Error('token-vacio');
-    var fsMod = await fsListo();
-    await refrescarToken();
-    await fsMod.setDoc(fsMod.doc(fb.db, 'users', st.user.uid, 'envios', token), datos);
-    return true;
-  }
-
-  /* Cambia el estado del envío (pendiente / respondido). No es crítico:
-     si falla, el circuito sigue funcionando. */
-  async function actualizarEnvio(token, campos) {
-    if (!st.user || !token) return false;
-    try {
-      var fsMod = await fsListo();
-      await refrescarToken();
-      await fsMod.updateDoc(fsMod.doc(fb.db, 'users', st.user.uid, 'envios', token), campos);
-      return true;
-    } catch (e) { return false; }
-  }
-
-  /* Respuesta del cliente. Se llama SIN sesión, desde su celular. */
-  async function crearRespuesta(uid, token, datos) {
-    if (!uid || !token) throw new Error('datos-incompletos');
-    var fsMod = await fsListo();
-    await fsMod.setDoc(fsMod.doc(fb.db, 'users', uid, 'respuestas', token), datos);
-    return true;
-  }
-
-  /* Lee la respuesta del cliente (solo el dueño: ver reglas). */
-  async function leerRespuesta(token) {
-    if (!st.user || !token) return null;
-    var fsMod = await fsListo();
-    await refrescarToken();
-    var snap = await fsMod.getDoc(fsMod.doc(fb.db, 'users', st.user.uid, 'respuestas', token));
-    return snap.exists() ? snap.data() : null;
-  }
-
   return {
     init: init, signIn: signIn, signUp: signUp, connect: connect, signOut: signOut,
     push: push, pull: pull, syncNow: syncNow, retry: retry,
     status: status, onChange: onChange, notifyChange: notifyChange,
     configured: configured, setConfig: setConfig, clearConfig: clearConfig,
     setAuto: setAuto, meta: meta,
-    leerEnvio: leerEnvio, crearEnvio: crearEnvio, actualizarEnvio: actualizarEnvio,
-    crearRespuesta: crearRespuesta, leerRespuesta: leerRespuesta,
     diagnostics: diagnostics, diagnosticsText: diagnosticsText, version: VERSION
   };
 })();
