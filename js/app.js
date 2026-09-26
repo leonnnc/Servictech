@@ -3031,6 +3031,13 @@ function updateSyncBanner(s) {
   var txt = '', aviso = false;
   if (s.loading) {
     txt = '';
+  } else if (s.conflicto) {
+    /* Se detectó que otro equipo devuelve los datos borrados: hay que
+       actualizar la app allí, no basta con esperar. */
+    txt = '<b>Un equipo con la versión anterior de la app sigue subiendo los datos borrados.</b> ' +
+      'Actualiza la app en ese equipo (Ajustes → Actualizar la app) para que el borrado se sostenga.' +
+      (s.remoteDevice ? ' Último equipo que escribió: <b>' + esc(s.remoteDevice) + '</b>.' : '');
+    aviso = true;
   } else if (s.connected && s.error) {
     txt = 'Hay un problema al sincronizar. Toca aquí para revisarlo.'; aviso = true;
   } else if (!s.connected && s.ready) {
@@ -3287,11 +3294,30 @@ document.addEventListener('click', function (e) {
     }, 'Cargar', false);
   }
   else if (act === 'reset') {
-    confirmBox('Borrar todo', 'Se eliminarán TODOS tus datos. Descarga antes un respaldo si los necesitas.', function () {
-      Store.reset();
-      toast('Datos borrados');
-      location.hash = '#/empresas';
-    }, 'Borrar todo');
+    /* El borrado no es solo local cuando hay sesión: se sube a la nube y los
+       otros equipos de la misma cuenta lo adoptan. Por eso se avisa antes y,
+       al terminar, se dice si llegó a subir o si quedó pendiente. */
+    var conectado = !!(window.Cloud && Cloud.status && Cloud.status().connected);
+    confirmBox('Borrar todo',
+      conectado
+        ? 'Se borrarán TODOS tus datos: en este equipo Y en la nube, así que también desaparecerán del otro equipo donde uses la misma cuenta. No se puede deshacer. Descarga antes un respaldo si los necesitas.'
+        : 'Se borrarán TODOS los datos de este dispositivo. No hay sesión en la nube, así que los otros equipos no se tocan. Descarga antes un respaldo si los necesitas.',
+      function () {
+        Store.reset();
+        if (!conectado) {
+          toast('Datos borrados en este dispositivo');
+          location.hash = '#/empresas';
+          return;
+        }
+        toast('Borrando en este equipo y en la nube…');
+        Cloud.pushNow().then(function (ok) {
+          toast(ok
+            ? 'Datos borrados en este equipo y en la nube'
+            : 'Borrado aquí, pero no subió a la nube: ' + ((Cloud.status().error) || 'revisa la conexión'));
+          route();
+        });
+        location.hash = '#/empresas';
+      }, 'Borrar todo');
   }
   /* ---------- centro de soluciones ---------- */
   else if (act === 'caso-resolver') {

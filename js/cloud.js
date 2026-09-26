@@ -5,14 +5,16 @@
    - Un documento por usuario: users/{uid}/app/main
    - Escucha en tiempo real (onSnapshot): el PC y el celular se
      ven casi al instante, sin esperar.
-   - Nunca se borran registros del otro equipo: si los dos
-     cambiaron a la vez, se combinan por id (unión).
+   - Si los dos cambiaron a la vez, se combinan por id (unión), pero lo
+     que se borró en cualquiera de los dos lados se respeta: cada borrado
+     deja una lápida y el borrado total deja un sello (meta.wipedAt) que
+     manda sobre la unión. Así "borrar" es borrar de verdad en los dos.
 
    IMPORTANTE: la sincronización entre dos dispositivos exige
    entrar con LA MISMA cuenta (correo/contraseña) en ambos.
    ========================================================= */
 window.Cloud = (function () {
-  var VERSION = 'v1.4';
+  var VERSION = 'v1.4.2';
   var CDN = 'https://www.gstatic.com/firebasejs/10.12.2/';
   var LS_CFG = 'servitech_fbcfg_v1';
   var LS_META = 'servitech_cloud_meta_v1';
@@ -21,7 +23,11 @@ window.Cloud = (function () {
 
   var st = {
     ready: false, loading: false, user: null, lastSync: 0, error: '', errorCode: '',
-    pending: false, auto: true, live: false, merged: 0, lastMerge: 0
+    pending: false, auto: true, live: false, merged: 0, lastMerge: 0,
+    /* Quién escribió por última vez en la nube (el documento lo lleva) y si
+       hay pelea por el borrado total: un equipo con la app anterior no conoce
+       el sello (wipedAt), así que pisa el borrado y vuelve a subir sus datos. */
+    remoteDevice: '', remoteAt: 0, conflicto: false, wipes: null
   };
   var fb = { app: null, auth: null, db: null, mod: null };
   var timer = null, pushTimer = null, unsub = null, listeners = [];
@@ -66,6 +72,9 @@ window.Cloud = (function () {
       live: st.live,
       merged: st.merged,
       lastMerge: st.lastMerge,
+      conflicto: !!st.conflicto,
+      remoteDevice: st.remoteDevice || '',
+      remoteAt: st.remoteAt || 0,
       project: (cfg() || {}).projectId || '',
       uid: st.user ? st.user.uid : ''
     };
@@ -137,10 +146,26 @@ window.Cloud = (function () {
     } catch (e) { }
   }
 
-  /* ---------- combinar dos bases (unión por id, gana lo remoto) ---------- */
+  /* ---------- combinar dos bases (unión por id, gana lo remoto) ----------
+     Con lápidas: lo que se borró en cualquiera de los dos lados no vuelve,
+     porque la unión por id sola resucitaría cualquier registro que el otro
+     equipo todavía tenga. */
   function mergeDB(local, remote) {
     var out = JSON.parse(JSON.stringify(remote || {}));
     var added = 0;
+    var lm = (local && local.meta) || {}, rm = out.meta || (out.meta = {});
+
+    // Unión de lápidas, gana la más reciente. Después de un borrado total,
+    // las lápidas anteriores a él ya no aplican: esos ids quedan libres otra vez.
+    var wipedAt = Math.max(Number(lm.wipedAt || 0), Number(rm.wipedAt || 0));
+    var tomb = {};
+    [lm.tomb || {}, rm.tomb || {}].forEach(function (t) {
+      Object.keys(t).forEach(function (k) {
+        var ts = Number(t[k] || 0);
+        if (ts > wipedAt && ts > Number(tomb[k] || 0)) tomb[k] = ts;
+      });
+    });
+
     COLS.forEach(function (col) {
       var rlist = Array.isArray(out[col]) ? out[col] : [];
       var llist = Array.isArray(local && local[col]) ? local[col] : [];
@@ -149,17 +174,21 @@ window.Cloud = (function () {
       llist.forEach(function (r) {
         if (r && r.id != null && !seen[String(r.id)]) { rlist.push(r); added++; }
       });
-      out[col] = rlist;
+      out[col] = rlist.filter(function (r) {
+        return !(r && r.id != null && tomb[col + ':' + r.id]);
+      });
     });
-    var lm = (local && local.meta) || {}, rm = out.meta || (out.meta = {});
+
     var lseq = lm.seq || {}, rseq = rm.seq || (rm.seq = {});
-    ['emp', 'equ', 'tar', 'rep', 'inf'].forEach(function (k) {
+    ['emp', 'equ', 'tar', 'rep', 'inf', 'cas'].forEach(function (k) {
       rseq[k] = Math.max(Number(lseq[k] || 0), Number(rseq[k] || 0));
     });
     rm.nextInf = Math.max(Number(lm.nextInf || 1), Number(rm.nextInf || 1));
     rm.year = rm.year || lm.year || new Date().getFullYear();
     if (!rm.tecnico) rm.tecnico = lm.tecnico || '';
     if (!rm.currency) rm.currency = lm.currency || 'S/ ';
+    rm.wipedAt = wipedAt;
+    rm.tomb = tomb;
     out.v = out.v || (local && local.v) || 1;
     return { db: out, added: added };
   }
@@ -220,11 +249,17 @@ window.Cloud = (function () {
     if (!payload || !payload.v) return false;
     var rUpd = Number(d.updatedAt || (payload.meta && payload.meta.updatedAt) || 0);
 
+    // De qué equipo es la última escritura: es lo que permite saber quién está
+    // peleando (el documento guarda "device" y "email" al subir).
+    if (d.device) { st.remoteDevice = String(d.device); st.remoteAt = rUpd; }
+
     var m = Store.db.meta || {};
     var base = Number(m.syncedAt || 0);     // versión que ya teníamos
     var lUpd = Number(m.updatedAt || 0);    // última edición local
     var dirty = lUpd > base;                // hay cambios locales sin subir
 
+    // Una bajada a mano ("Bajar desde la nube") es una orden explícita del
+    // usuario: manda sobre cualquier regla automática, incluido el borrado.
     if (force) {
       backupPrev();
       Store.importJSON(JSON.stringify(payload), true);
@@ -236,6 +271,53 @@ window.Cloud = (function () {
       rerender();
       toast('Datos reemplazados por los de la nube');
       return true;
+    }
+
+    /* ---------- borrado total deliberado ----------
+       Manda por encima de la combinación por id. Sin esto, el borrado no se
+       sostenía: dentro de la ventana de 2,5 s antes de subir llegaba la copia
+       vieja y la resucitaba, y el otro equipo la "rescataba" (subía sus datos
+       porque veía la nube vacía) y este la volvía a adoptar. */
+    var wipeL = Number(m.wipedAt || 0);
+    var wipeR = Number((payload.meta && payload.meta.wipedAt) || 0);
+
+    // Nos borraron todo desde otro equipo: adoptamos el vacío aunque aquí
+    // todavía haya datos. La protección de "nube vacía" NO aplica.
+    if (wipeR > wipeL) {
+      backupPrev();
+      Store.importJSON(JSON.stringify(payload), true);
+      Store.db.meta.updatedAt = rUpd;
+      Store.db.meta.syncedAt = rUpd;
+      Store.save(true, true);
+      markSync(); rerender();
+      toast('Se borraron todos los datos desde otro equipo');
+      return true;
+    }
+
+    // La nube ya conoce el borrado (lo subimos nosotros o llegó de otro
+    // equipo): si había pelea, terminó.
+    if (wipeL > 0 && wipeR >= wipeL) { st.conflicto = false; st.wipes = null; }
+
+    // Este equipo borró todo y la nube sigue con la copia vieja: el borrado
+    // es el cambio que hay que subir, y no se adopta nada de lo remoto.
+    if (wipeL > wipeR) {
+      /* Reponer el borrado tiene tope. Un equipo con la app ANTERIOR no conoce
+         el sello, así que lo pisa y vuelve a subir sus datos; sin tope, los dos
+         equipos se quedarían peleando sin fin (visto: una subida cada ~25 s,
+         con la píldora clavada en "Subiendo" para siempre). Se repone una vez
+         por versión remota y como mucho cada 5 s; si se repite demasiado, se
+         avisa en pantalla para que se actualice ese equipo. */
+      var w = st.wipes;
+      if (!w) { w = st.wipes = { n: 0, desde: 0, ultima: 0, ultimo: 0, avisado: false }; }
+      var ahora = Date.now();
+      if (!w.desde || ahora - w.desde > 120000) { w.desde = ahora; w.n = 0; w.avisado = false; }
+      if (rUpd <= w.ultima || ahora - w.ultimo < 5000) return false;  // ya repuesto o muy seguido
+      w.ultima = rUpd; w.ultimo = ahora; w.n++;
+      if (w.n > 3 && !w.avisado) {
+        w.avisado = true; st.conflicto = true; emit();
+        toast('Un equipo con la versión anterior sigue subiendo datos borrados. Actualiza la app en ese equipo.');
+      }
+      return await push(true);
     }
 
     if (rUpd <= base) {
@@ -455,6 +537,16 @@ window.Cloud = (function () {
   }
   function syncNow() { return pull(false); }
 
+  /* Sube ya, sin el retardo de 2,5 s de notifyChange. Se usa cuando el cambio
+     es deliberado y hay que poder confirmarlo en pantalla: el borrado total.
+     Si justo había una subida en curso, la deja en cola y la da por hecha:
+     cuando termine, la cola sube el estado actual (ya borrado). */
+  function pushNow() {
+    if (!st.user) return Promise.resolve(false);
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    return push(true).then(function (r) { return !!(r || pushQueued); });
+  }
+
   /* ---------- mensajes de error legibles ---------- */
   /* Código de error de Firebase (para decidir qué ofrecer después). */
   function codigo(e) {
@@ -526,6 +618,10 @@ window.Cloud = (function () {
       total: total,
       updatedAt: dm.updatedAt || 0,
       syncedAt: dm.syncedAt || 0,
+      wipedAt: dm.wipedAt || 0,
+      conflicto: !!st.conflicto,
+      remoteDevice: st.remoteDevice || '',
+      remoteAt: st.remoteAt || 0,
       veredicto: veredicto
     };
   }
@@ -555,6 +651,15 @@ window.Cloud = (function () {
     l.push('  Total: ' + d.total);
     l.push('  updatedAt (último cambio local): ' + d.updatedAt);
     l.push('  syncedAt (versión que se sincronizó): ' + d.syncedAt);
+    l.push('  wipedAt (último borrado total): ' + (d.wipedAt ? new Date(d.wipedAt).toLocaleString() : 'nunca'));
+    l.push('');
+    l.push('NUBE:');
+    l.push('  Último equipo que escribió: ' + (d.remoteDevice || '— sin dato —') +
+      (d.remoteAt ? ' · ' + new Date(d.remoteAt).toLocaleString() : ''));
+    if (d.conflicto) {
+      l.push('  CONFLICTO: otro equipo con la versión anterior sigue subiendo datos borrados.');
+      l.push('  Actualiza la app en ese equipo (Ajustes → Actualizar la app) para que el borrado se sostenga.');
+    }
     return l.join('\n');
   }
 
@@ -572,7 +677,7 @@ window.Cloud = (function () {
 
   return {
     init: init, signIn: signIn, signUp: signUp, connect: connect, signOut: signOut,
-    push: push, pull: pull, syncNow: syncNow, retry: retry,
+    push: push, pushNow: pushNow, pull: pull, syncNow: syncNow, retry: retry,
     status: status, onChange: onChange, notifyChange: notifyChange,
     configured: configured, setConfig: setConfig, clearConfig: clearConfig,
     setAuto: setAuto, meta: meta,

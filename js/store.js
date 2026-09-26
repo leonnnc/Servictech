@@ -28,6 +28,10 @@ window.Store = (function () {
     if (!m.nextInf) m.nextInf = 1;
     if (!m.year) m.year = new Date().getFullYear();
     if (m.tecnico === undefined) m.tecnico = '';
+    // Lápidas de borrado ("empresas:3") y sello del último borrado total.
+    // Viajan con los datos para que la nube no devuelva lo que se borró.
+    if (!m.tomb) m.tomb = {};
+    if (!m.wipedAt) m.wipedAt = 0;
 
     // Asegurar que las secuencias no colisionen con registros existentes
     Object.keys(SEQKEY).forEach(function (col) {
@@ -109,8 +113,13 @@ window.Store = (function () {
     return row;
   }
 
+  /* Borra un registro y deja su lápida. La lápida es lo que impide que
+     el registro vuelva desde la nube o desde el otro equipo: sin ella, la
+     combinación por id lo resucitaría (lo tenga el otro equipo o no). */
   function del(col, id) {
     db[col] = coll(col).filter(function (r) { return String(r.id) !== String(id); });
+    if (!db.meta.tomb) db.meta.tomb = {};
+    db.meta.tomb[col + ':' + id] = Date.now();
     save();
   }
 
@@ -128,7 +137,20 @@ window.Store = (function () {
     db = d; ensureMeta(); save(skipNotify); return db;
   }
 
-  function reset() { db = empty(); save(); }
+  /* Borrado total explícito (botón "Borrar todos los datos").
+     Vacía las colecciones y deja la marca wipedAt, que es lo que hace que
+     el borrado se sostenga: la nube y los otros equipos la respetan en vez
+     de devolver la copia vieja. Se conserva syncedAt, que es lo único que
+     dice cuál era la versión remota que ya teníamos: sin él, la app cree
+     que nunca sincronizó (base = 0) y cualquier copia vieja la sobrescribe. */
+  function reset() {
+    var prev = (db && db.meta) || {};
+    db = empty();
+    db.meta.wipedAt = Date.now();
+    if (prev.syncedAt) db.meta.syncedAt = prev.syncedAt;
+    save();
+    return db;
+  }
 
   function nextInfCode() {
     var d = new Date();

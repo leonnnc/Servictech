@@ -1,4 +1,4 @@
-# Servitech v1.4 — App de soporte técnico
+# Servitech v1.4.2 — App de soporte técnico
 
 PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de servicios, costos de servicios, repuestos e informes con firma y PDF**.
 
@@ -16,7 +16,7 @@ Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guard
 - **Informes de servicio**: emisión consolidada por empresa y fecha de jornada **o por mes completo** (un solo informe por empresa con todos los servicios de ese mes), numeración correlativa anual, repuestos usados, **monto del servicio** (se propone la suma de los precios de la jornada desde Costos y se puede ajustar a mano; aparece en el PDF, en la vista del informe y en el texto para WhatsApp), **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp.
 - **Conformidad del servicio, en el sitio**: al cerrar el informe el cliente está delante. Se marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**, se escribe la observación si hace falta y el cliente **firma con el dedo** en el celular (obligatorio), además de su nombre y cargo. Todo eso queda en el informe y en el PDF.
 - **Centro de soluciones**: cuando el cliente firma *No conforme* o deja una observación, se abre un caso con su texto, estado (*Pendiente* / *Resuelto*), tu nota de solución y la fecha de cierre. Se entra desde la portada (*Quejas por resolver*).
-- **Ajustes**: sincronización Firebase con **inicio de sesión por correo/contraseña** (usa la misma cuenta en todos tus equipos para ver los mismos datos), botones *Subir este dispositivo* y *Bajar desde la nube*, copia automática de seguridad antes de reemplazar datos, respaldo/restauración JSON, nombre del técnico y moneda.
+- **Ajustes**: sincronización Firebase con **inicio de sesión por correo/contraseña** (usa la misma cuenta en todos tus equipos para ver los mismos datos), botones *Subir este dispositivo* y *Bajar desde la nube*, copia automática de seguridad antes de reemplazar datos, respaldo/restauración JSON, nombre del técnico y moneda. El botón **Borrar todos los datos** avisa del alcance real: con sesión iniciada borra también en la nube y en los otros equipos, y confirma al terminar si llegó a subir.
 
 ## Sincronización entre la PC y el celular
 
@@ -33,8 +33,36 @@ Cómo funciona:
 3. Si los dos dispositivos cambiaron a la vez (por ejemplo el celular sin
    señal), los registros se **combinan por `id`**: no se pierde lo que haya
    creado el otro equipo. Avisa en pantalla cuántos registros se combinaron.
-4. Antes de reemplazar datos se guarda una copia, recuperable en Ajustes →
+4. **Lo que borras, se borra en los dos.** Cada borrado deja una *lápida*
+   (`meta.tomb`), que se combina con la del otro equipo: un registro borrado en
+   un equipo no reaparece aunque el otro todavía lo tenga. La lápida manda
+   sobre la combinación por `id`.
+5. **"Borrar todos los datos" también se propaga.** El botón vacía el equipo y
+   sube el borrado **de inmediato** (sin los 2,5 s de espera), y deja un sello
+   (`meta.wipedAt`) que el otro equipo adopta: en vez de "rescatar" sus datos
+   al ver la nube vacía, se vacía también. Avisa antes de hacerlo y confirma en
+   pantalla si llegó a subir. Sin sesión iniciada borra **solo** este equipo, y
+   lo dice al terminar.
+6. Antes de reemplazar datos se guarda una copia, recuperable en Ajustes →
    "Restaurar copia anterior".
+
+> **Si el borrado no se queda quieto**: aparece una franja de aviso en
+> cualquier pantalla — *"Un equipo con la versión anterior de la app sigue
+> subiendo los datos borrados"*. Significa que en otro equipo con la misma
+> cuenta quedó la **versión anterior**, que no conoce el sello y por eso repone
+> sus datos. En Ajustes → Nube → *Diagnóstico de sincronización* se ve **qué
+> equipo escribió por última vez**. Actualiza la app en ese equipo (Ajustes →
+> *Actualizar la app*): al abrir la versión nueva adopta el borrado y la pelea
+> termina. Mientras tanto este equipo sigue reponiendo el borrado, con un tope
+> de una reposición cada 5 s, para no estar pisándose sin fin (que era lo que
+> dejaba el indicador clavado en "Subiendo").
+
+> **Limitación conocida**: si los dos equipos crean un registro nuevo estando
+> separados (sin sincronizar entremedio), cada uno numera desde su propia
+> cuenta y a los dos les puede tocar el mismo `id`; al combinarlos, uno de los
+> dos se pierde. Es anterior a esta versión. Mientras no se cambien los `id` por
+> identificadores únicos por equipo, conviene sincronizar antes de registrar o
+> trabajar en un solo equipo por jornada.
 
 > Sin sesión iniciada **no hay sincronización**: cada dispositivo guarda solo
 > en su propio navegador. Es a propósito, para no mezclar datos de equipos
@@ -73,6 +101,7 @@ vistas y el guardado.
 ```bash
 node pruebas\test-conformidad.js
 node pruebas\test-servicios-mes.js
+node pruebas\test-borrado.js
 ```
 
 `test-conformidad.js` hace **51 comprobaciones**: que el formulario pide la firma del
@@ -84,6 +113,16 @@ del circuito por enlace (ni botones, ni funciones, ni zonas públicas en las reg
 `test-servicios-mes.js` hace **58 comprobaciones** del agrupado por día y por mes, del
 resumen en pantalla y del informe consolidado del mes (un informe por empresa, que los
 servicios del mes queden Completados y que el código del informe sea correlativo).
+
+`test-borrado.js` hace **39 comprobaciones** del borrado, con dos equipos simulados
+sobre el `applySnap` y el `mergeDB` reales: que el borrado total no vuelva con la copia
+vieja de la nube ni porque el otro equipo la "rescate", que un registro borrado no
+resucite aunque el otro equipo todavía lo tenga y los dos hayan cambiado, que lo creado
+después de un borrado total sobreviva, que la red de seguridad de "nube vacía" siga
+funcionando cuando el vacío no es deliberado, y que la pelea con un equipo de la versión
+anterior se limite (una reposición como mucho cada 5 s), avise en pantalla y se cierre
+sola cuando ese equipo se actualiza. Al final avisa (sin fallar) del problema conocido de
+los `id` repetidos entre equipos.
 
 ### Si un equipo no sincroniza (revisión en 1 minuto)
 
@@ -103,8 +142,9 @@ la cabecera, en cualquier pantalla. Además, junto al icono de nube:
 
 Y dentro de Ajustes → Nube, el desplegable **Diagnóstico de sincronización**
 muestra en texto: versión de los archivos cargados, cuenta, **uid**, si la
-escucha en tiempo real está activa, cuándo fue la última sincronización y
-cuántos registros hay en ese equipo.
+escucha en tiempo real está activa, cuándo fue la última sincronización, el
+sello del último borrado total, **qué equipo escribió por última vez en la
+nube** (Windows, Android…) y cuántos registros hay en ese equipo.
 
 Dos cosas que conviene comparar entre los dos equipos:
 
