@@ -610,7 +610,9 @@ body.cover main { padding: 0; }
 }
 
 /* ---------- bloques de jornada por fecha ---------- */
-.day-card {
+/* .pend-card es el bloque de servicios pendientes, que va arriba de todo en el
+   módulo Servicios. Mismo cuerpo que un bloque de jornada, con acento ámbar. */
+.day-card, .pend-card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -618,6 +620,9 @@ body.cover main { padding: 0; }
   overflow: hidden;
   margin-bottom: 12px;
 }
+.pend-card .day-head { background: linear-gradient(135deg, #FFFBF3, var(--warn-bg)); }
+.pend-card .day-title { color: var(--warn-tx); }
+.pend-card .day-badge { background: var(--warn-bg); color: var(--warn-tx); }
 .day-head {
   display: flex; align-items: center; justify-content: space-between;
   background: linear-gradient(135deg, #F8FAF9, #EDF4F2);

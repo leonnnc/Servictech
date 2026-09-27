@@ -651,10 +651,8 @@ function vEquipoForm(qs) {
     '</div>' +
     '<div class="row2">' +
     field('Usuario del equipo', 'usuario', v('usuario'), 'text', 'Ej: Juan Pérez / Recepción') +
-    field('Ubicación de la empresa (sede / sucursal)', 'ubicacion_empresa', v('ubicacion_empresa'), 'text', 'Ej: Sede Principal, Sucursal Norte…') +
-    '</div>' +
-    field('Ubicación interna (piso, oficina…)', 'ubicacion', v('ubicacion'), 'text', 'Ej: Piso 3, Oficina 302, Sala de servidores…') +
     field('Fecha de registro', 'fecha_registro', v('fecha_registro') || Store.today(), 'date', '', true) +
+    '</div>' +
     fieldArea('Notas del equipo', 'notas_equipo', v('notas_equipo')) +
     '<button class="btn primary block" type="submit">Guardar equipo</button>' +
     '</form></div>';
@@ -705,6 +703,29 @@ function servRowHtml(t, idx) {
     '</div><div class="row-meta">' + badge(t.estado, EST_TAREA) + '</div></a>';
 }
 
+/* =========================================================
+   BLOQUE DE SERVICIOS PENDIENTES (va arriba de todo)
+   Los pendientes son los que falta cerrar: se separan del resto para que no
+   se pierdan entre los servicios ya atendidos. Van del más antiguo al más
+   nuevo, que son los que más urge resolver.
+   ========================================================= */
+function esServPendiente(t) { return String(t.estado || '') === 'Pendiente'; }
+
+function pendientesBlockHtml(list) {
+  var items = list.slice().sort(function (a, b) {
+    return servicioFecha(a).localeCompare(servicioFecha(b));
+  });
+  var sub = sumCostos(items);
+  return '<div class="pend-card">' +
+    '<div class="day-head">' +
+    '<div class="day-title"><span>⏳ Pendientes</span>' +
+    '<span class="day-badge">' + pl(items.length, 'servicio', 'servicios') + '</span></div>' +
+    '<div class="day-actions">' + (sub > 0 ? '<span class="mes-sub">' + money(sub) + '</span>' : '') + '</div>' +
+    '</div>' +
+    '<div class="day-items">' + items.map(function (t, i) { return servRowHtml(t, i); }).join('') + '</div>' +
+    '</div>';
+}
+
 function tarListHtml(q, est, agr) {
   var db = Store.db;
   q = (q || '').toLowerCase();
@@ -716,11 +737,16 @@ function tarListHtml(q, est, agr) {
   if (!list.length) {
     return '<div class="empty"><p>' + (db.tareas.length ? 'Sin servicios para este filtro.' : 'No hay servicios. Crea uno desde el botón + Nuevo.') + '</p></div>';
   }
-  if (agr === 'mes') return tarMesHtml(list);
+  /* Los pendientes se separan arriba. Solo cuando no hay filtro de estado:
+     si filtras por "Completada", el bloque de pendientes no tiene sentido. */
+  var pend = est ? [] : list.filter(esServPendiente);
+  var resto = pend.length ? list.filter(function (t) { return !esServPendiente(t); }) : list;
+
+  if (agr === 'mes') return (pend.length ? pendientesBlockHtml(pend) : '') + tarMesHtml(resto);
 
   // Agrupar por fecha (los servicios de la misma fecha se juntan aquí)
   var groups = {};
-  list.forEach(function (t) {
+  resto.forEach(function (t) {
     var f = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || Store.today();
     if (!groups[f]) groups[f] = [];
     groups[f].push(t);
@@ -742,7 +768,7 @@ function tarListHtml(q, est, agr) {
     groups[f].forEach(function (t, idx) { html += servRowHtml(t, idx); });
     html += '</div></div>';
   });
-  return html;
+  return (pend.length ? pendientesBlockHtml(pend) : '') + html;
 }
 
 /* --- Vista por mes: el mes se junta y se separa por empresa --- */
@@ -1001,18 +1027,19 @@ function vTareaForm(qs) {
     '</div>' +
     fieldSel('Estado', 'estado', optList(ESTADOS_TAREA_LIST, v('estado') || 'Pendiente', '')) +
     fieldArea('Descripción del trabajo / pedido del cliente', 'descripcion_trabajo', v('descripcion_trabajo'), 'Ej: No enciende, error de red…', true) +
-    fieldArea('Trabajo realizado', 'trabajo_realizado', v('trabajo_realizado')) +
-    fieldArea('Solución / estado final', 'solucion', v('solucion')) +
+    /* Un solo campo: antes eran "Trabajo realizado" y "Solución / estado final".
+       Si el servicio es antiguo y solo tenía solución, se muestra igual para
+       poder editarla, en vez de aparecer vacío. */
+    fieldArea('Trabajo Realizado / Solución de Servicio', 'trabajo_realizado', v('trabajo_realizado') || v('solucion')) +
     '<div class="row2">' +
     fieldSel('¿Equipo operativo?', 'equipo_operativo', '<option value=""></option><option value="Sí"' + (v('equipo_operativo') === 'Sí' ? ' selected' : '') + '>Sí</option><option value="No"' + (v('equipo_operativo') === 'No' ? ' selected' : '') + '>No</option>') +
-    fieldSel('Estado del informe', 'informe_emitido', '<option value="false">Sin informe</option><option value="true"' + (v('informe_emitido') === true || v('informe_emitido') === 'true' ? ' selected' : '') + '>Emitido</option>') +
+    field('Fecha del trabajo (día)', 'fecha_trabajo', v('fecha_trabajo') || qs.get('fecha') || Store.today(), 'date', '', true) +
     '</div>' +
     fieldArea('Recomendaciones', 'recomendaciones', v('recomendaciones')) +
     '<div class="row2">' +
-    field('Fecha del trabajo (día)', 'fecha_trabajo', v('fecha_trabajo') || qs.get('fecha') || Store.today(), 'date', '', true) +
     field('Costo de mano de obra / servicio (' + (Store.db.meta.currency || 'S/ ') + ')', 'costo', v('costo') != null && v('costo') !== '' ? v('costo') : '', 'number', '0.00') +
-    '</div>' +
     field('Técnico responsable', 'tecnico_responsable', v('tecnico_responsable') || Store.db.meta.tecnico || '', 'text', 'Tu nombre') +
+    '</div>' +
     '<button class="btn primary block" type="submit">' + (t ? 'Guardar cambios' : 'Crear servicio') + '</button>' +
     '</form></div>';
 
@@ -1030,7 +1057,9 @@ function saveTarea(form) {
   if (!d.id_empresa) { toast('Elige la empresa'); return; }
   if (!d.descripcion_trabajo.trim()) { toast('Escribe una descripción'); return; }
   d.fecha_trabajo = d.fecha_trabajo || Store.today();
-  d.informe_emitido = (d.informe_emitido === 'true');
+  /* informe_emitido ya no se toca desde aquí: lo marca el propio informe al
+     emitirse (true) o al eliminarse (false). Si se escribiera desde el
+     formulario, editar un servicio reiniciaría la marca del informe. */
   if (d.costo !== undefined && d.costo !== '') d.costo = parseFloat(d.costo) || 0;
   var id = form.dataset.id;
   if (id) { Store.upd('tareas', id, d); toast('Servicio actualizado'); }
@@ -1063,8 +1092,10 @@ function vTarea(id) {
     '<div class="kv"><span>Descripción</span><b>' + esc(t.descripcion_trabajo || '—') + '</b></div>' +
     (t.costo != null && t.costo !== '' ? '<div class="kv"><span>Costo de servicio</span><b>' + money(Number(t.costo) || 0) + '</b></div>' : '') +
     (t.novedad ? '<div class="kv"><span>Novedad (encontrado)</span><b>' + esc(t.novedad) + '</b></div>' : '') +
-    (t.trabajo_realizado ? '<div class="kv"><span>Trabajo realizado</span><b>' + esc(t.trabajo_realizado) + '</b></div>' : '') +
-    (t.solucion ? '<div class="kv"><span>Solución</span><b>' + esc(t.solucion) + '</b></div>' : '') +
+    (t.trabajo_realizado ? '<div class="kv"><span>Trabajo realizado / solución</span><b>' + esc(t.trabajo_realizado) + '</b></div>' : '') +
+    /* La solución de los servicios antiguos se sigue viendo, salvo que sea
+       el mismo texto (entonces ya está en la fila de arriba). */
+    (t.solucion && t.solucion !== t.trabajo_realizado ? '<div class="kv"><span>Solución</span><b>' + esc(t.solucion) + '</b></div>' : '') +
     (t.recomendaciones ? '<div class="kv"><span>Recomendaciones</span><b>' + esc(t.recomendaciones) + '</b></div>' : '') +
     '<div class="kv"><span>Creada</span><b>' + fmtDate(t.fecha_creacion) + '</b>' +
     (t.fecha_programada ? ' · programada: ' + fmtDate(t.fecha_programada) : '') +
@@ -1566,24 +1597,10 @@ function vInformeForm(qs) {
     html += '<div class="kv"><span>' + esc(r.descripcion_pieza) + '</span><b>x' + esc(r.cantidad) + ' · ' + money(r.precio_unitario) + '</b></div>';
   });
 
-  // --- Monto del servicio: se propone la suma de los precios de las tareas
-  //     de la jornada (módulo Costos) y se puede ajustar a mano. ---
-  var sumaCostos = 0;
-  dayTasks.forEach(function (tk) { sumaCostos += (parseFloat(tk.costo) || 0); });
-  var montoVal = (infExistente && infExistente.monto != null && infExistente.monto !== '')
-    ? infExistente.monto
-    : (sumaCostos > 0 ? sumaCostos : '');
-  var currSym = Store.db.meta.currency || 'S/ ';
-  html += '<h2 class="sec">Monto del servicio</h2>' +
-    '<p class="hint">Es el importe que se cobra ' + (mesPeriodo ? ('por todo el mes (' + esc(mesLabel(mesPeriodo)) + ')') : 'por esta jornada') +
-    ' y aparecerá en el PDF y en el correo al cliente. ' +
-    (sumaCostos > 0
-      ? 'Calculado desde Costos: <b>' + money(sumaCostos) + '</b> (puedes ajustarlo).'
-      : 'Aún no hay precios en Costos para ' + (mesPeriodo ? 'este mes' : 'esta jornada') + ', escríbelo a mano.') + '</p>' +
-    '<label class="fld"><span>Monto total (' + esc(currSym) + ') *</span>' +
-    '<input type="number" name="monto" step="0.01" min="0" inputmode="decimal" value="' + esc(montoVal) + '" placeholder="Ej: 350" required>' +
-    '</label>' +
-    (changed.length ? '<p class="hint">Los repuestos van detallados aparte en el informe, no sumes su costo aquí si ya está incluido.</p>' : '');
+  /* El informe es solo el documento técnico: NO lleva monto ni costo. El cobro
+     del servicio se establece al cerrarlo (campo Costo del servicio, y el
+     módulo Costos). Los informes antiguos que ya tenían monto guardado lo
+     siguen mostrando: es un documento ya emitido. */
 
   var obsGuardada = infExistente ? (infExistente.observaciones_conformidad || '') : '';
 
@@ -1647,8 +1664,7 @@ function saveInforme(form) {
     return;
   }
 
-  var monto = parseFloat(d.monto);
-  if (!(monto > 0)) { toast('Escribe el monto del servicio (debe ser mayor que 0)'); return; }
+  /* Ya no se pide ni se valida un monto: el informe no cobra. */
 
   var sigR = pads.resp ? pads.resp.dataURL() : '';
   if (!sigR && existingInf && existingInf.firma_responsable) {
@@ -1699,7 +1715,7 @@ function saveInforme(form) {
     existingInf.conformidad = d.conformidad || 'Conforme';
     existingInf.nombre_responsable = d.nombre_responsable;
     existingInf.cargo_responsable = d.cargo_responsable;
-    existingInf.monto = monto;
+    /* No se toca existingInf.monto: si el informe es antiguo y tenía monto, se conserva. */
     existingInf.moneda = Store.db.meta.currency || 'S/ ';
     if (sigR) existingInf.firma_responsable = sigR;
     if (sigT) existingInf.firma_tecnico = sigT;
@@ -1742,7 +1758,6 @@ function saveInforme(form) {
     observaciones_conformidad: obsConf,
     nombre_responsable: d.nombre_responsable,
     cargo_responsable: d.cargo_responsable,
-    monto: monto,
     moneda: Store.db.meta.currency || 'S/ ',
     firma_responsable: sigR,
     firma_tecnico: sigT,
