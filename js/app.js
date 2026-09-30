@@ -1827,6 +1827,32 @@ function informeText(x) {
   return L.join('\n');
 }
 
+/* Filas del lienzo que se pueden usar como corte de hoja: las que no tienen
+   tinta (solo fondo o una línea clara). Se mira el lienzo, no la pantalla, así que
+   el corte nunca parte una línea de texto aunque la captura no coincida exactamente
+   con las medidas del DOM. Devuelve un arreglo de 0/1 por fila. */
+function filasCortables(canvas) {
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width;
+  var h = canvas.height;
+  var filas = new Uint8Array(h);
+  var franja = 300;
+  for (var y0 = 0; y0 < h; y0 += franja) {
+    var alto = Math.min(franja, h - y0);
+    var datos = ctx.getImageData(0, y0, w, alto).data;
+    for (var r = 0; r < alto; r++) {
+      var base = r * w * 4;
+      var limpia = 1;
+      for (var x = 0; x < w; x += 2) {
+        var i = base + x * 4;
+        if (datos[i] < 180 || datos[i + 1] < 180 || datos[i + 2] < 180) { limpia = 0; break; }
+      }
+      filas[y0 + r] = limpia;
+    }
+  }
+  return filas;
+}
+
 function generateReportPdf(x, callback) {
   var printArea = document.getElementById('printArea');
   if (!printArea) {
@@ -1849,28 +1875,93 @@ function generateReportPdf(x, callback) {
     backgroundColor: '#ffffff'
   }).then(function (canvas) {
     try {
-      var imgData = canvas.toDataURL('image/jpeg', 0.95);
       var pdf = new jspdfLib('p', 'mm', 'a4');
-      var pdfWidth = pdf.internal.pageSize.getWidth();
-      var pdfHeight = pdf.internal.pageSize.getHeight();
+      var pdfW = pdf.internal.pageSize.getWidth();
+      var pdfH = pdf.internal.pageSize.getHeight();
+      var margenX = 10;
+      var margenTop = 10;
+      var altoPie = 13;                       // franja reservada para el pie
+      var anchoMm = pdfW - margenX * 2;
+      var altoUtilMm = pdfH - margenTop - altoPie;
 
-      var imgWidth = pdfWidth - 20; // 10mm márgenes
-      var imgHeight = (canvas.height * imgWidth) / canvas.width;
+      var rect = printArea.getBoundingClientRect();
+      var escala = canvas.height / Math.max(1, rect.height);        // px de canvas por px de CSS
+      var mmPorPxCss = anchoMm / Math.max(1, rect.width);
+      var limite = (altoUtilMm / mmPorPxCss) * escala;              // alto de una hoja, en px de canvas
 
-      var xPos = 10;
-      var yPos = 10;
-      var heightLeft = imgHeight;
-      var position = 10;
+      /* Fronteras de bloque (solo como preferencia: si el corte cae justo ahí, la
+         ficha de servicio queda entera en la misma hoja). */
+      var nodos = printArea.querySelectorAll('.rep-head, .rep-meta-grid, .rep-sec-card, .rep-serv, .rep-firmas');
+      var fronteras = [];
+      Array.prototype.forEach.call(nodos, function (nodo) {
+        var r = nodo.getBoundingClientRect();
+        fronteras.push((r.top - rect.top) * escala);
+        fronteras.push((r.bottom - rect.top) * escala);
+      });
 
-      pdf.addImage(imgData, 'JPEG', xPos, position, imgWidth, imgHeight);
-      heightLeft -= (pdfHeight - 20);
+      /* Filas por las que SÍ se puede cortar: las que no llevan tinta. */
+      var cortables = filasCortables(canvas);
 
-      // Si el contenido excede una página A4, añadir páginas subsecuentes
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight + 10;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', xPos, position, imgWidth, imgHeight);
-        heightLeft -= (pdfHeight - 20);
+      /* Reparto en hojas: en cada una se baja hasta la última fila cortable que
+         entre. Se prefiere que esa fila sea una frontera de bloque. */
+      var paginas = [];
+      var desde = 0;
+      var guardia = 0;
+      while (desde < canvas.height - 2 && guardia++ < 80) {
+        var objetivo = desde + limite;
+        if (objetivo >= canvas.height - 2) { paginas.push([desde, canvas.height]); break; }
+        var minimo = desde + limite * 0.3;
+        var corte = 0;
+
+        /* 1) una frontera de bloque que además caiga en fila limpia */
+        for (var j = 0; j < fronteras.length; j++) {
+          var fr = Math.round(fronteras[j]);
+          if (fr <= minimo || fr > objetivo) continue;
+          for (var d = 0; d <= 5; d++) {
+            if (fr - d > desde && cortables[fr - d]) { if (fr - d > corte) corte = fr - d; break; }
+            if (fr + d <= objetivo && cortables[fr + d]) { if (fr + d > corte) corte = fr + d; break; }
+          }
+        }
+        /* 2) si no, la última fila limpia que entre */
+        if (!corte) {
+          for (var y = Math.floor(objetivo); y > minimo; y--) {
+            if (cortables[y]) { corte = y; break; }
+          }
+        }
+        /* 3) un bloque más alto que la hoja: no queda otra que cortar donde toque */
+        if (!corte) corte = Math.round(objetivo);
+        paginas.push([desde, corte]);
+        desde = corte;
+      }
+      if (!paginas.length) paginas.push([0, canvas.height]);
+
+      var totalPag = paginas.length;
+      var cliente = (x.empresa && x.empresa.razon_social) || '';
+      var emision = fmtDT(x.fecha_emision);
+
+      for (var p = 0; p < totalPag; p++) {
+        var y0 = Math.floor(paginas[p][0]);
+        var y1 = Math.ceil(paginas[p][1]);
+        var alto = y1 - y0;
+        var trozo = document.createElement('canvas');
+        trozo.width = canvas.width;
+        trozo.height = alto;
+        trozo.getContext('2d').drawImage(canvas, 0, y0, canvas.width, alto, 0, 0, canvas.width, alto);
+        if (p > 0) pdf.addPage();
+        pdf.addImage(trozo.toDataURL('image/jpeg', 0.95), 'JPEG', margenX, margenTop, anchoMm, (alto / escala) * mmPorPxCss);
+
+        /* Pie de cada hoja: marca, N° de informe y número de página. */
+        var yPie = pdfH - 7.5;
+        pdf.setDrawColor(210, 220, 217);
+        pdf.setLineWidth(0.3);
+        pdf.line(margenX, yPie - 4.5, pdfW - margenX, yPie - 4.5);
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(105, 120, 116);
+        pdf.text('SERVITECH SOPORTE TÉCNICO', margenX, yPie);
+        if (cliente) pdf.text(cliente, pdfW / 2, yPie, { align: 'center' });
+        pdf.text('Página ' + (p + 1) + ' de ' + totalPag, pdfW - margenX, yPie, { align: 'right' });
+        pdf.setFontSize(7);
+        pdf.text('Informe N° ' + (x.codigo || '') + ' · Emitido ' + emision, margenX, yPie + 3.4);
       }
 
       if (typeof callback === 'function') callback(null, pdf);
@@ -2102,6 +2193,16 @@ function vInforme(id) {
 
     (x.enviado_a ? '<div class="rep-foot">Comprobante de envío: enviado vía ' + esc(x.enviado_a) + ' el ' + fmtDT(x.fecha_envio) + '</div>' : '') +
     (casoInf ? '<div class="rep-foot">Caso de solución abierto: ' + esc(casoInf.tipo) + ' (' + esc(casoInf.estado) + ')</div>' : '') +
+
+    /* Pie del documento: cierra el informe. En el PDF lo dibuja la app en cada
+       hoja (con el número de página), así que aquí se marca para que la captura
+       no lo duplique; al imprimir desde el navegador se repite al fondo de cada
+       página, que es justo lo que hace un pie. */
+    '<div class="rep-pie" data-html2canvas-ignore="true">' +
+    '<span class="rep-pie-brand">SERVITECH SOPORTE TÉCNICO</span>' +
+    '<span class="rep-pie-info">Informe N° ' + esc(x.codigo) + (e.razon_social ? ' · ' + esc(e.razon_social) : '') + '</span>' +
+    '<span class="rep-pie-date">' + (x.periodo_mes ? 'Período: ' + esc(mesLabel(x.periodo_mes)) : 'Jornada: ' + esc(fServ)) + ' · Emitido ' + fmtDT(x.fecha_emision) + '</span>' +
+    '</div>' +
     '</div>';
   $('#view').innerHTML = html;
 }

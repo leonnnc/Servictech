@@ -1153,9 +1153,37 @@ body.cover main { padding: 0; }
   letter-spacing: .3px; color: var(--ink2);
 }
 .rep-serv-total-val b { font-size: 16px; font-weight: 800; color: var(--teal-dk); }
+/* ---------- Pie del documento ----------
+   Cierra el informe. Al imprimir desde el navegador se repite al fondo de cada
+   hoja (Chrome repite los elementos con posición fija). */
+.rep-pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 14px;
+  margin-top: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--ink2);
+}
+.rep-pie-brand { font-weight: 800; letter-spacing: .4px; color: var(--teal-dk); }
+.rep-pie-info { font-weight: 700; color: var(--ink); }
+
 @media print {
   .rep-serv { page-break-inside: avoid; }
   .rep-serv-total { page-break-inside: avoid; }
+  .rep-firmas { page-break-inside: avoid; }
+  .rep-pie {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 0;
+    margin: 0;
+    padding: 4px 0 0;
+    background: #fff;
+  }
 }
 
 /* ---------- Cierre de la lista de Costos ---------- */
