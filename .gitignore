@@ -18,3 +18,8 @@ system-commandline-sentinel-files/
 
 # ejemplo del informe que se abre desde el navegador (no es parte de la app)
 ejemplo-informe.html
+
+# Restos de verificaciones (scripts y PDFs de prueba sueltos)
+_*.py
+_*.pdf
+*.tmp
