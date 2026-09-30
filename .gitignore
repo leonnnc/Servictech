@@ -23,3 +23,6 @@ ejemplo-informe.html
 _*.py
 _*.pdf
 *.tmp
+
+# Informes generados (entregables, no van al repo)
+Informe_*.pdf
