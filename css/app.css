@@ -339,6 +339,14 @@ canvas.sig {
 .rep-sec-recom .rep-sec-header svg { stroke: #8B5CF6; fill: none; stroke-width: 2.2; }
 
 /* Conformidad destacada */
+/* La conformidad va dentro de la tarjeta del cliente: una línea con su etiqueta. */
+.rep-conf-cliente { margin-top: 7px; }
+.rep-conf-lbl {
+  font-size: 10.5px; font-weight: 750; text-transform: uppercase;
+  letter-spacing: .3px; color: #60726E;
+}
+.rep-conf-obs { margin-top: 5px; font-size: 12.5px; color: #556; }
+
 .rep-conformidad-badge {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 750;
@@ -1176,6 +1184,8 @@ body.cover main { padding: 0; }
 .report.pdf-mode .rep-serv-total-val { margin-top: 4px; padding-top: 5px; }
 .report.pdf-mode .rep-serv-total-val b { font-size: 13px; }
 .report.pdf-mode .rep-conformidad-badge { padding: 4px 10px; font-size: 12px; margin-top: 3px; }
+.report.pdf-mode .rep-conf-cliente { margin-top: 5px; }
+.report.pdf-mode .rep-conf-obs { margin-top: 4px; font-size: 11.5px; }
 .report.pdf-mode .rep-monto-body { padding: 8px 11px; gap: 8px; }
 .report.pdf-mode .rep-monto-val { font-size: 16px; }
 .report.pdf-mode .rep-firmas { margin-top: 10px; }

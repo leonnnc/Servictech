@@ -1,4 +1,4 @@
-# Servitech v1.4.24 — App de soporte técnico
+# Servitech v1.4.25 — App de soporte técnico
 
 PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de servicios, costos de servicios, repuestos e informes con firma y PDF**.
 
@@ -105,7 +105,7 @@ node pruebas\test-servicios-mes.js
 node pruebas\test-borrado.js
 ```
 
-`test-conformidad.js` hace **88 comprobaciones**: que el formulario pide los datos del
+`test-conformidad.js` hace **89 comprobaciones**: que el formulario pide los datos del
 cliente (nombre y cargo, sin firmas por ahora), que *No conforme* abre un caso en el centro
 de soluciones, que las vistas se dibujan sin errores, que los informes antiguos que
 quedaron pendientes se siguen abriendo, y que **no queda rastro** del circuito por enlace

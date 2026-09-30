@@ -2075,6 +2075,15 @@ function vInforme(id) {
     (e.ruc ? '<br>RUC: ' + esc(e.ruc) : '') +
     (e.direccion ? '<br>' + esc(e.direccion) : '') +
     (e.contacto ? '<br>Contacto: ' + esc(e.contacto) : '') +
+    '<div class="rep-conf-cliente">' +
+    '<span class="rep-conf-lbl">Conformidad:</span> ' +
+    (esPendiente
+      ? '<span class="rep-conformidad-badge rep-conf-pend">⏳ Conformidad pendiente del cliente</span>'
+      : (isConforme
+        ? '<span class="rep-conformidad-badge rep-conf-si">✅ Servicio Conforme</span>'
+        : '<span class="rep-conformidad-badge rep-conf-no">⚠️ No Conforme (Con Observación)</span>')) +
+    (x.observaciones_conformidad ? '<div style="margin-top:6px; font-size:12.5px; color:#556;"><b>Obs:</b> ' + esc(x.observaciones_conformidad) + '</div>' : '') +
+    '</div>' +
     '</div></div>' +
     '<div class="rep-meta-card">' +
     '<div class="rep-meta-title">Atención y Equipo</div>' +
@@ -2086,17 +2095,7 @@ function vInforme(id) {
       (eq.ubicacion_empresa ? '<br><b>Sede:</b> ' + esc(eq.ubicacion_empresa) : '') +
       (eq.ubicacion ? '<br><b>Ubicación:</b> ' + esc(eq.ubicacion) : '') : '<b>Atención general en sitio</b>') +
     '</div></div>' +
-    '<div class="rep-meta-card">' +
-    '<div class="rep-meta-title">Estado de conformidad</div>' +
-    '<div class="rep-meta-val">' +
-    (esPendiente
-      ? '<span class="rep-conformidad-badge rep-conf-pend">⏳ Conformidad pendiente del cliente</span>'
-      : (isConforme
-        ? '<span class="rep-conformidad-badge rep-conf-si">✅ Servicio Conforme</span>'
-        : '<span class="rep-conformidad-badge rep-conf-no">⚠️ No Conforme (Con Observación)</span>')) +
-    (x.observaciones_conformidad ? '<div style="margin-top:6px; font-size:12.5px; color:#556;"><b>Obs:</b> ' + esc(x.observaciones_conformidad) + '</div>' : '') +
-    '</div></div>' +
-    '</div>' +
+        '</div>' +
 
     /* Sección 1: Lo que se encontró */
     /* Sección 1: detalle de los servicios, uno por bloque */
