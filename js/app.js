@@ -1917,7 +1917,7 @@ function generateReportPdf(x, callback) {
         for (var j = 0; j < fronteras.length; j++) {
           var fr = Math.round(fronteras[j]);
           if (fr <= minimo || fr > objetivo) continue;
-          for (var d = 0; d <= 5; d++) {
+          for (var d = 0; d <= 10; d++) {
             if (fr - d > desde && cortables[fr - d]) { if (fr - d > corte) corte = fr - d; break; }
             if (fr + d <= objetivo && cortables[fr + d]) { if (fr + d > corte) corte = fr + d; break; }
           }
