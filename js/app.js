@@ -1827,32 +1827,6 @@ function informeText(x) {
   return L.join('\n');
 }
 
-/* Filas del lienzo que se pueden usar como corte de hoja: las que no tienen
-   tinta (solo fondo o una línea clara). Se mira el lienzo, no la pantalla, así que
-   el corte nunca parte una línea de texto aunque la captura no coincida exactamente
-   con las medidas del DOM. Devuelve un arreglo de 0/1 por fila. */
-function filasCortables(canvas) {
-  var ctx = canvas.getContext('2d');
-  var w = canvas.width;
-  var h = canvas.height;
-  var filas = new Uint8Array(h);
-  var franja = 300;
-  for (var y0 = 0; y0 < h; y0 += franja) {
-    var alto = Math.min(franja, h - y0);
-    var datos = ctx.getImageData(0, y0, w, alto).data;
-    for (var r = 0; r < alto; r++) {
-      var base = r * w * 4;
-      var limpia = 1;
-      for (var x = 0; x < w; x += 2) {
-        var i = base + x * 4;
-        if (datos[i] < 180 || datos[i + 1] < 180 || datos[i + 2] < 180) { limpia = 0; break; }
-      }
-      filas[y0 + r] = limpia;
-    }
-  }
-  return filas;
-}
-
 function generateReportPdf(x, callback) {
   var printArea = document.getElementById('printArea');
   if (!printArea) {
@@ -1868,109 +1842,99 @@ function generateReportPdf(x, callback) {
     return;
   }
 
-  window.html2canvas(printArea, {
-    scale: 2, // Buena resolución
-    useCORS: true,
-    logging: false,
-    backgroundColor: '#ffffff'
-  }).then(function (canvas) {
-    try {
-      var pdf = new jspdfLib('p', 'mm', 'a4');
-      var pdfW = pdf.internal.pageSize.getWidth();
-      var pdfH = pdf.internal.pageSize.getHeight();
-      var margenX = 10;
-      var margenTop = 10;
-      var altoPie = 13;                       // franja reservada para el pie
-      var anchoMm = pdfW - margenX * 2;
-      var altoUtilMm = pdfH - margenTop - altoPie;
+  /* El informe se captura en modo compacto (menos aire entre bloques) y al terminar
+     se le quita la clase: el PDF aprovecha la hoja y la pantalla queda igual que
+     siempre. */
+  printArea.classList.add('pdf-mode');
 
-      var rect = printArea.getBoundingClientRect();
-      var escala = canvas.height / Math.max(1, rect.height);        // px de canvas por px de CSS
-      var mmPorPxCss = anchoMm / Math.max(1, rect.width);
-      var limite = (altoUtilMm / mmPorPxCss) * escala;              // alto de una hoja, en px de canvas
+  var pdf = new jspdfLib('p', 'mm', 'a4');
+  var pdfW = pdf.internal.pageSize.getWidth();
+  var pdfH = pdf.internal.pageSize.getHeight();
+  var margenX = 9;
+  var margenTop = 9;
+  var altoPie = 11;                        // franja reservada para el pie
+  var anchoMm = pdfW - margenX * 2;
+  var altoUtilMm = pdfH - margenTop - altoPie;
 
-      /* Fronteras de bloque (solo como preferencia: si el corte cae justo ahí, la
-         ficha de servicio queda entera en la misma hoja). */
-      var nodos = printArea.querySelectorAll('.rep-head, .rep-meta-grid, .rep-sec-card, .rep-serv, .rep-firmas');
-      var fronteras = [];
-      Array.prototype.forEach.call(nodos, function (nodo) {
-        var r = nodo.getBoundingClientRect();
-        fronteras.push((r.top - rect.top) * escala);
-        fronteras.push((r.bottom - rect.top) * escala);
-      });
+  var rect = printArea.getBoundingClientRect();
+  var mmPorPx = anchoMm / Math.max(1, rect.width);
+  var altoUtilPx = altoUtilMm / mmPorPx;   // px de CSS que entran en una hoja
 
-      /* Filas por las que SÍ se puede cortar: las que no llevan tinta. */
-      var cortables = filasCortables(canvas);
+  /* El reparto en hojas se decide midiendo EL DOCUMENTO, no la captura: las
+     fronteras de cada bloque (su principio y su fin) son los únicos puntos donde
+     puede caer un corte. Así ninguna ficha de servicio queda partida y la hoja se
+     llena hasta la última frontera que entra. */
+  var nodos = printArea.querySelectorAll('.rep-head, .rep-meta-grid, .rep-sec-card, .rep-serv, .rep-firmas');
+  var fronteras = [0, rect.height];
+  Array.prototype.forEach.call(nodos, function (nodo) {
+    var r = nodo.getBoundingClientRect();
+    fronteras.push(r.top - rect.top);
+    fronteras.push(r.bottom - rect.top);
+  });
+  fronteras = fronteras
+    .filter(function (v) { return v >= 0 && v <= rect.height; })
+    .sort(function (a, b) { return a - b; });
 
-      /* Reparto en hojas: en cada una se baja hasta la última fila cortable que
-         entre. Se prefiere que esa fila sea una frontera de bloque. */
-      var paginas = [];
-      var desde = 0;
-      var guardia = 0;
-      while (desde < canvas.height - 2 && guardia++ < 80) {
-        var objetivo = desde + limite;
-        if (objetivo >= canvas.height - 2) { paginas.push([desde, canvas.height]); break; }
-        var minimo = desde + limite * 0.3;
-        var corte = 0;
-
-        /* 1) una frontera de bloque que además caiga en fila limpia */
-        for (var j = 0; j < fronteras.length; j++) {
-          var fr = Math.round(fronteras[j]);
-          if (fr <= minimo || fr > objetivo) continue;
-          for (var d = 0; d <= 10; d++) {
-            if (fr - d > desde && cortables[fr - d]) { if (fr - d > corte) corte = fr - d; break; }
-            if (fr + d <= objetivo && cortables[fr + d]) { if (fr + d > corte) corte = fr + d; break; }
-          }
-        }
-        /* 2) si no, la última fila limpia que entre */
-        if (!corte) {
-          for (var y = Math.floor(objetivo); y > minimo; y--) {
-            if (cortables[y]) { corte = y; break; }
-          }
-        }
-        /* 3) un bloque más alto que la hoja: no queda otra que cortar donde toque */
-        if (!corte) corte = Math.round(objetivo);
-        paginas.push([desde, corte]);
-        desde = corte;
-      }
-      if (!paginas.length) paginas.push([0, canvas.height]);
-
-      var totalPag = paginas.length;
-      var cliente = (x.empresa && x.empresa.razon_social) || '';
-      var emision = fmtDT(x.fecha_emision);
-
-      for (var p = 0; p < totalPag; p++) {
-        var y0 = Math.floor(paginas[p][0]);
-        var y1 = Math.ceil(paginas[p][1]);
-        var alto = y1 - y0;
-        var trozo = document.createElement('canvas');
-        trozo.width = canvas.width;
-        trozo.height = alto;
-        trozo.getContext('2d').drawImage(canvas, 0, y0, canvas.width, alto, 0, 0, canvas.width, alto);
-        if (p > 0) pdf.addPage();
-        pdf.addImage(trozo.toDataURL('image/jpeg', 0.95), 'JPEG', margenX, margenTop, anchoMm, (alto / escala) * mmPorPxCss);
-
-        /* Pie de cada hoja: marca, N° de informe y número de página. */
-        var yPie = pdfH - 7.5;
-        pdf.setDrawColor(210, 220, 217);
-        pdf.setLineWidth(0.3);
-        pdf.line(margenX, yPie - 4.5, pdfW - margenX, yPie - 4.5);
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(105, 120, 116);
-        pdf.text('SERVITECH SOPORTE TÉCNICO', margenX, yPie);
-        if (cliente) pdf.text(cliente, pdfW / 2, yPie, { align: 'center' });
-        pdf.text('Página ' + (p + 1) + ' de ' + totalPag, pdfW - margenX, yPie, { align: 'right' });
-        pdf.setFontSize(7);
-        pdf.text('Informe N° ' + (x.codigo || '') + ' · Emitido ' + emision, margenX, yPie + 3.4);
-      }
-
-      if (typeof callback === 'function') callback(null, pdf);
-    } catch (err) {
-      console.error('Error generando documento PDF:', err);
-      if (typeof callback === 'function') callback(err);
+  var paginas = [];
+  var desde = 0;
+  var guardia = 0;
+  while (desde < rect.height - 1 && guardia++ < 60) {
+    var objetivo = desde + altoUtilPx;
+    if (objetivo >= rect.height - 1) { paginas.push([desde, rect.height]); break; }
+    var corte = 0;
+    for (var i = 0; i < fronteras.length; i++) {
+      if (fronteras[i] > desde + altoUtilPx * 0.3 && fronteras[i] <= objetivo && fronteras[i] > corte) corte = fronteras[i];
     }
+    if (!corte) corte = objetivo;   // un bloque más alto que la hoja: no queda otra
+    paginas.push([desde, corte]);
+    desde = corte;
+  }
+  if (!paginas.length) paginas.push([0, rect.height]);
+
+  var totalPag = paginas.length;
+  var cliente = (x.empresa && x.empresa.razon_social) || '';
+  var emision = fmtDT(x.fecha_emision);
+
+  /* Cada hoja se captura por separado, recortando el informe a la altura que le
+     toca. Con el recorte, el corte es exacto: lo que va en una hoja es justo lo que
+     se midió para esa hoja. */
+  var cadena = Promise.resolve();
+  paginas.forEach(function (pg, p) {
+    var altoCss = Math.max(1, pg[1] - pg[0]);
+    cadena = cadena.then(function () {
+      return window.html2canvas(printArea, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        y: pg[0],
+        height: altoCss
+      });
+    }).then(function (trozo) {
+      if (p > 0) pdf.addPage();
+      pdf.addImage(trozo.toDataURL('image/jpeg', 0.95), 'JPEG', margenX, margenTop, anchoMm, altoCss * mmPorPx);
+
+      /* Pie de cada hoja: marca, cliente, N° de informe y número de página. */
+      var yPie = pdfH - 7.5;
+      pdf.setDrawColor(210, 220, 217);
+      pdf.setLineWidth(0.3);
+      pdf.line(margenX, yPie - 4.5, pdfW - margenX, yPie - 4.5);
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(105, 120, 116);
+      pdf.text('SERVITECH SOPORTE TÉCNICO', margenX, yPie);
+      if (cliente) pdf.text(cliente, pdfW / 2, yPie, { align: 'center' });
+      pdf.text('Página ' + (p + 1) + ' de ' + totalPag, pdfW - margenX, yPie, { align: 'right' });
+      pdf.setFontSize(7);
+      pdf.text('Informe N° ' + (x.codigo || '') + ' · Emitido ' + emision, margenX, yPie + 3.4);
+    });
+  });
+
+  cadena.then(function () {
+    printArea.classList.remove('pdf-mode');
+    if (typeof callback === 'function') callback(null, pdf);
   }).catch(function (err) {
-    console.error('Error html2canvas:', err);
+    printArea.classList.remove('pdf-mode');
+    console.error('Error generando documento PDF:', err);
     if (typeof callback === 'function') callback(err);
   });
 }

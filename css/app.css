@@ -1153,6 +1153,36 @@ body.cover main { padding: 0; }
   letter-spacing: .3px; color: var(--ink2);
 }
 .rep-serv-total-val b { font-size: 16px; font-weight: 800; color: var(--teal-dk); }
+/* ---------- Modo PDF: el informe más compacto ----------
+   Solo se aplica mientras la app genera el PDF (pone y quita la clase). Mismos
+   bloques con menos aire, para que las hojas se aprovechen y no queden huecos. */
+.report.pdf-mode { padding: 10px 12px; margin: 0; }
+.report.pdf-mode .rep-head { padding-bottom: 8px; margin-bottom: 8px; }
+.report.pdf-mode .rep-t { font-size: 17px; }
+.report.pdf-mode .rep-sub { margin-top: 3px; line-height: 1.35; }
+.report.pdf-mode .rep-code { font-size: 11.5px; padding: 3px 8px; }
+.report.pdf-mode .rep-meta-grid { gap: 7px; margin-bottom: 9px; }
+.report.pdf-mode .rep-meta-card { padding: 7px 9px; border-radius: 10px; }
+.report.pdf-mode .rep-sec-card { margin-bottom: 7px; border-radius: 10px; }
+.report.pdf-mode .rep-sec-header { padding: 6px 10px; font-size: 11.5px; }
+.report.pdf-mode .rep-serv-list { padding: 7px 9px; gap: 6px; }
+.report.pdf-mode .rep-serv-head { padding: 4px 8px; gap: 6px; }
+.report.pdf-mode .rep-serv-num { width: 17px; height: 17px; flex: 0 0 17px; font-size: 10px; }
+.report.pdf-mode .rep-serv-tipo { font-size: 9.5px; padding: 1px 6px; }
+.report.pdf-mode .rep-serv-row { padding: 3.5px 8px; font-size: 11.5px; }
+.report.pdf-mode .rep-serv-row .k { font-size: 9.5px; }
+.report.pdf-mode .rep-serv-total { padding: 6px 10px; }
+.report.pdf-mode .rep-serv-total-line { font-size: 11px; padding: 1px 0; }
+.report.pdf-mode .rep-serv-total-val { margin-top: 4px; padding-top: 5px; }
+.report.pdf-mode .rep-serv-total-val b { font-size: 13px; }
+.report.pdf-mode .rep-conformidad-badge { padding: 4px 10px; font-size: 12px; margin-top: 3px; }
+.report.pdf-mode .rep-monto-body { padding: 8px 11px; gap: 8px; }
+.report.pdf-mode .rep-monto-val { font-size: 16px; }
+.report.pdf-mode .rep-firmas { margin-top: 10px; }
+.report.pdf-mode .firma-box { height: 62px; margin-bottom: 5px; }
+.report.pdf-mode .rep-foot { margin-top: 10px; padding-top: 6px; font-size: 10.5px; }
+.report.pdf-mode .rep-pie { margin-top: 6px; padding-top: 4px; }
+
 /* ---------- Pie del documento ----------
    Cierra el informe. Al imprimir desde el navegador se repite al fondo de cada
    hoja (Chrome repite los elementos con posición fija). */
