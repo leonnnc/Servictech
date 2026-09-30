@@ -1798,8 +1798,7 @@ function informeText(x) {
       L.push('   Equipo: ' + s.equipo);
       L.push('   Falla reportada: ' + (s.falla || 'No se registró'));
       L.push('   Solución / trabajo realizado: ' + (s.solucion || 'Pendiente de detalle'));
-      L.push('   Costo del servicio: ' + ((s.cobra || s.costo > 0) ? money(s.costo) : 'Por definir') +
-        (s.cobra ? '' : '  (no suma: servicio pendiente)'));
+      L.push('   Costo del servicio: ' + ((s.cobra || s.costo > 0) ? money(s.costo) : 'Por definir'));
       L.push('');
     });
     var cobrados = ssT.filter(function (s) { return s.cobra; });
@@ -1945,7 +1944,7 @@ function informeServiciosHtml(x, ss) {
       '<div class="rep-serv-row"><span class="k">Falla reportada</span><span class="v">' + esc(s.falla || 'No se registró') + '</span></div>' +
       '<div class="rep-serv-row"><span class="k">Solución / trabajo realizado</span><span class="v">' + esc(s.solucion || 'Pendiente de detalle') + '</span></div>' +
       '<div class="rep-serv-row rep-serv-costo' + (s.cobra ? '' : ' rep-serv-nocobra') + '">' +
-      '<span class="k">Costo del servicio' + (s.cobra ? '' : '<span class="rep-serv-tag">no suma</span>') + '</span>' +
+      '<span class="k">Costo del servicio</span>' +
       '<span class="v">' + ((s.cobra || s.costo > 0) ? money(s.costo) : 'Por definir') + '</span></div>' +
       '</div>';
   });
