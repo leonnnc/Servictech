@@ -11,7 +11,12 @@ Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guard
 - **Equipos**: registrados por empresa (tipo, marca, modelo, N° de serie, usuario y fecha de registro).
 - **Servicios**: banco de servicios con estados (Pendiente, En curso, Esperando repuestos, Completado, Cancelado), novedad y el campo único *Trabajo Realizado / Solución de Servicio*. Los **⏳ Pendientes** salen en su propio bloque arriba de todo (del más antiguo al más nuevo), para que no se pierdan entre los ya atendidos. Se pueden ver **📅 por día** (los servicios de la misma fecha se juntan en un solo bloque con su subtotal y el enlace al **resumen del día**) o **🗓️ por mes** (el mes se junta y se separa por empresa, con la opción de **juntar los servicios del mes en un solo informe por empresa** cuando hay 2 o más).
 - **Resumen en pantalla** (`#/resumen`): vista previa imprimible que junta los servicios de un día o de un mes (con o sin empresa) en un solo listado, con subtotal por día y total del período. Desde ahí se emite el informe oficial.
-- **Costos**: listado completo de servicios con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de los servicios seleccionados y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**.
+- **Costos**: listado completo de servicios con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de los servicios seleccionados y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**. Solo suman los servicios **Completados** (los que están en verde): los que están Pendiente, En curso, Esperando repuestos o Cancelada no entran en ningún total, ni en el subtotal del día ni en el mes.
+@@@MONTO1@@@
+- **El informe no cobra**: no pide ni imprime monto. Es solo el documento técnico (novedad,
+  trabajo realizado, repuestos y firmas); el importe se establece al cerrar el servicio,
+  en el campo *Costo de mano de obra / servicio*, y se resume en el módulo **Costos**.
+  Los informes antiguos que ya tenían monto guardado conservan su cifra.
 - **Repuestos / compras**: estados *Por comprar → Pedido → Recibido → Cambiado*.
 - **Informes de servicio**: emisión consolidada por empresa y fecha de jornada **o por mes completo** (un solo informe por empresa con todos los servicios de ese mes), numeración correlativa anual, repuestos usados, **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp. El informe es **solo el documento técnico: no pide ni imprime monto** — el cobro del servicio se establece al cerrarlo (campo *Costo de mano de obra / servicio* del servicio, y el módulo Costos). Los informes antiguos que ya tenían un monto guardado lo siguen mostrando, porque son documentos ya emitidos.
 - **Conformidad del servicio, en el sitio**: al cerrar el informe el cliente está delante. Se marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**, se escribe la observación si hace falta y el cliente **firma con el dedo** en el celular (obligatorio), además de su nombre y cargo. Todo eso queda en el informe y en el PDF.
@@ -172,8 +177,11 @@ misma visita y no queda nada pendiente.
 
 Detalles que conviene saber:
 
-- **No se puede guardar sin monto**: el informe exige un monto mayor que 0 (se propone
-  la suma de Costos y puedes ajustarlo).
+- **El informe no cobra**: no pide ni imprime monto. Es solo el documento técnico (novedad,
+  trabajo realizado, repuestos y firmas); el importe se establece al cerrar el servicio,
+  en el campo *Costo de mano de obra / servicio*, y se resume en el módulo **Costos**.
+  Los informes antiguos que ya tenían monto guardado conservan su cifra.
+
 - **Las quejas no se pierden**: si el cliente firma *No conforme* o deja una observación,
   se abre automáticamente un caso en el **Centro de soluciones** para resolverlo y dejar
   constancia de qué se hizo.
@@ -182,6 +190,15 @@ Detalles que conviene saber:
 - **Informes antiguos**: los que se emitieron con la versión anterior como *Conformidad
   pendiente* se siguen abriendo y se muestran como **PENDIENTE**; basta **Editar informe**
   para dejar la conformidad firmada en el sitio.
+
+## Comportamiento de la app
+
+- **Vuelve solo al inicio**: si nadie usa la app durante **5 minutos**, la pantalla vuelve
+  sola a la portada. Así no queda a la vista el trabajo del cliente anterior cuando el
+  equipo se comparte o se queda en el taller.
+- **Aviso de actualización**: al abrir la app (escritorio o móvil) se comprueba si hay una
+  versión más nueva publicada y, si la hay, se ofrece actualizarla al momento (limpia la
+  caché, actualiza el service worker y recarga).
 
 ## Uso local
 
@@ -201,9 +218,6 @@ Abre `http://127.0.0.1:8765` en el navegador.
 
 - `modelo-de-datos-servitech.md` — modelo de datos completo (fichas y campos).
 - `plantilla-servitech.xlsx` — plantilla de ejemplo de las fichas.
-- `hosting-php/INSTALACION.md` — **en desuso**: era el endpoint PHP que enviaba el correo
-  de conformidad por enlace. Ya no hace falta (la conformidad se firma en el sitio); se
-  conserva solo como referencia.
 
 ## Estructura
 
@@ -217,10 +231,18 @@ js/app.js             vistas, rutas y lógica
 sw.js                 service worker (offline; solo en https)
 manifest.webmanifest  manifest de la PWA (en la raíz, para que sus rutas resuelvan bien)
 firestore.rules       reglas de seguridad de Firestore (deben estar publicadas)
-hosting-php/          en desuso: era el endpoint del correo de conformidad por enlace
 assets/               íconos
 ```
 
-Nota: GitHub Pages solo sirve archivos estáticos, así que `hosting-php/` **no
-se ejecuta** ahí; y como la conformidad se firma en el sitio, ese endpoint ya no
-se usa para nada.
+Nota: GitHub Pages solo sirve archivos estáticos, así que no hay backend: toda la
+app funciona en el navegador (datos, PDF y firma) y la conformidad se firma en el
+sitio del cliente.
+
+
+> **Al publicar una versión nueva** hay que subir el número en cuatro sitios, o algún
+> equipo se quedará con el JavaScript viejo en la caché del navegador: la cabecera de
+> `index.html` (`.app-ver`), las URLs de los assets de `index.html` (`?v=…`), la lista
+> `ASSETS` de `sw.js` y el nombre de `CACHE` de `sw.js`. Las suites de pruebas comprueban
+> que los cuatro vayan a la par. La app avisa sola cuando detecta una versión más nueva
+> publicada y ofrece actualizarse al momento.
+sitio del cliente.

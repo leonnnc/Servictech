@@ -686,9 +686,16 @@ function servicioFecha(t) {
   return t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || Store.today();
 }
 
+/* Solo se cobran los servicios COMPLETADOS (los que salen en verde).
+   Los que están Pendiente, En curso, Esperando repuestos o Cancelada todavía
+   no suman en ningún total. La regla vive en un solo sitio para que la lista
+   de servicios, el mes y el módulo Costos digan siempre lo mismo. */
+var ESTADO_COBRA = 'Completada';
+function cuentaEnCostos(t) { return String((t && t.estado) || '') === ESTADO_COBRA; }
+
 function sumCostos(list) {
   var t = 0;
-  (list || []).forEach(function (x) { t += (parseFloat(x.costo) || 0); });
+  (list || []).filter(cuentaEnCostos).forEach(function (x) { t += (parseFloat(x.costo) || 0); });
   return t;
 }
 
@@ -2278,7 +2285,7 @@ function vCostos(qs) {
 
   // Map de selección: todos seleccionados por defecto
   var selectedMap = {};
-  tareas.forEach(function (t) { selectedMap[String(t.id)] = true; });
+  tareas.forEach(function (t) { selectedMap[String(t.id)] = cuentaEnCostos(t); });
 
   var curEst = qs.get('est') || '';
   var curQ = (qs.get('q') || '').trim().toLowerCase();
@@ -2321,6 +2328,7 @@ function vCostos(qs) {
           '<div class="costos-total-all" id="costosTotalAll">Total servicios visibles: ' + currSym + '0.00</div>' +
         '</div>' +
       '</div>' +
+      '<div class="costos-rule-hint">Solo suman los servicios <b>Completados</b>. Los que están Pendiente, En curso, Esperando repuestos o Cancelada todavía no se cobran.</div>' +
       '<div class="costos-actions-row">' +
         '<button type="button" class="btn primary sm" id="btnCostosWaPdf">📱 Enviar por WhatsApp (PDF)</button>' +
         '<button type="button" class="btn secondary sm" id="btnCostosDlPdf">📥 Descargar PDF</button>' +
@@ -2377,15 +2385,18 @@ function vCostos(qs) {
       var desc = t.descripcion_trabajo || '(Sin descripción)';
       var searchStr = (cod + ' ' + emp + ' ' + equ + ' ' + desc + ' ' + (t.estado || '')).toLowerCase();
       var valCosto = (t.costo != null && t.costo !== '') ? t.costo : '';
+      var cobra = cuentaEnCostos(t);
 
-      html += '<div class="card pad costos-item is-selected" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" data-search="' + esc(searchStr) + '" data-est="' + esc(t.estado || '') + '">' +
+      html += '<div class="card pad costos-item' + (cobra ? ' is-selected' : ' no-cobra') + '" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" data-search="' + esc(searchStr) + '" data-est="' + esc(t.estado || '') + '">' +
         '<div class="costos-item-top">' +
           '<label class="costos-check-wrap">' +
-            '<input type="checkbox" class="costos-check" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '" checked>' +
+            '<input type="checkbox" class="costos-check" data-id="' + esc(t.id) + '" data-date="' + esc(f) + '"' + (cobra ? ' checked' : ' disabled') + '>' +
             '<span class="costos-code-pill">' + cod + '</span>' +
           '</label>' +
           '<div class="costos-meta-top">' +
             badge(t.estado, EST_TAREA) +
+            (cobra ? '' : '<span class="costos-nocobra" title="Solo suman los servicios completados">no suma</span>') +
+          '</div>' +
           '</div>' +
         '</div>' +
         '<div class="costos-item-body">' +
@@ -2424,7 +2435,7 @@ function vCostos(qs) {
       var dSub = 0;
       groups[f].forEach(function (t) {
         var card = $('.costos-item[data-id="' + String(t.id) + '"]');
-        if (card && card.style.display !== 'none') {
+        if (card && card.style.display !== 'none' && cuentaEnCostos(t)) {
           dSub += (parseFloat(t.costo) || 0);
         }
       });
@@ -2437,9 +2448,9 @@ function vCostos(qs) {
       var cost = parseFloat(t.costo) || 0;
       var card = $('.costos-item[data-id="' + idStr + '"]');
       var isVis = card && card.style.display !== 'none';
-      if (isVis) { sumVis += cost; countVis++; }
+      if (isVis && cuentaEnCostos(t)) { sumVis += cost; countVis++; }
 
-      if (isVis && selectedMap[idStr]) {
+      if (isVis && cuentaEnCostos(t) && selectedMap[idStr]) {
         sumSel += cost;
         countSel++;
         var d = t.fecha_trabajo || t.fecha_creacion;
@@ -3506,3 +3517,88 @@ document.addEventListener('click', function (e) {
     }
   }
 });
+
+/* =========================================================
+   VUELTA AL INICIO POR INACTIVIDAD
+   Si nadie usa el sistema durante 5 minutos, vuelve solo a la portada (inicio).
+   Así no queda a la vista el trabajo del cliente anterior cuando el equipo se
+   comparte o se queda solo en el taller.
+   ========================================================= */
+var IDLE_MS = 5 * 60 * 1000;
+var idleTimer = null;
+
+function volverAlInicio() {
+  var h = location.hash || '';
+  if (h === '' || h === '#' || h === '#/' || h === '#/intro') return;
+  location.hash = '#/intro';
+}
+
+function reiniciarIdle() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(volverAlInicio, IDLE_MS);
+  /* En las pruebas (Node) un temporizador pendiente deja el proceso colgado;
+     en el navegador no existe unref(), así que esto no hace nada allí. */
+  if (idleTimer && typeof idleTimer.unref === 'function') idleTimer.unref();
+}
+
+function activarVueltaAlInicio() {
+  if (!document || !document.addEventListener) return;
+  ['mousedown', 'pointerdown', 'keydown', 'touchstart', 'scroll', 'input', 'change'].forEach(function (ev) {
+    document.addEventListener(ev, reiniciarIdle, true);
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') reiniciarIdle();
+  });
+  reiniciarIdle();
+}
+
+/* =========================================================
+   AVISO DE ACTUALIZACIÓN
+   Al abrir la app (escritorio o móvil) se comprueba si hay una versión más
+   nueva publicada y, si la hay, se pregunta si se quiere actualizar.
+   ========================================================= */
+function versionCargada() {
+  var el = (document.querySelector ? document.querySelector('.app-ver') : null);
+  return el ? String(el.textContent || '').trim() : '';
+}
+
+function actualizarApp(nueva) {
+  toast('Actualizando la app…');
+  var pend = [];
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      pend.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+        return Promise.all(regs.map(function (r) { return r.update(); }));
+      }));
+    }
+    if (window.caches && window.caches.keys) {
+      pend.push(window.caches.keys().then(function (ks) {
+        return Promise.all(ks.map(function (k) { return window.caches.delete(k); }));
+      }));
+    }
+  } catch (e) { }
+  /* Se navega a index.html con la versión nueva. Las URLs de los assets llevan
+     ?v= y cambian en cada versión, así que el navegador no puede servir el
+     JavaScript viejo que tuviera guardado en su caché (era el fallo visto:
+     cabecera nueva con app.js antiguo). */
+  var destino = nueva ? ('index.html?v=' + encodeURIComponent(nueva)) : 'index.html';
+  Promise.all(pend).catch(function () { }).then(function () { location.replace(destino); });
+}
+
+function avisoDeActualizacion() {
+  if (typeof fetch !== 'function') return;
+  fetch('index.html', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (txt) {
+    var m = txt.match(/app-ver">\s*(v[\d.]+)/);
+    if (!m) return;
+    var nueva = m[1];
+    var actual = versionCargada();
+    if (!actual || nueva === actual) return;
+    confirmBox('Actualización disponible',
+      'Hay una versión nueva de la app (<b>' + esc(nueva) + '</b>) y estás usando la <b>' + esc(actual) + '</b>.<br>¿La actualizas ahora?',
+      function () { actualizarApp(nueva); }, 'Actualizar');
+  }).catch(function () { });
+}
+
+/* Arranque de las dos funciones nuevas */
+activarVueltaAlInicio();
+setTimeout(avisoDeActualizacion, 1500);

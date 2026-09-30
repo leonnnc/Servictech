@@ -348,7 +348,6 @@ canvas.sig {
 /* Conformidad todavía no recibida (se pidió por enlace) */
 .rep-conf-pend { background: #FEF3C7; color: #92400E; border: 1.5px solid #FCD34D; }
 /* Cerrada por falta de respuesta del cliente (2 días calendario) */
-.rep-conf-auto { background: #E0F2FE; color: #075985; border: 1.5px solid #7DD3FC; }
 
 /* Centro de soluciones: texto que dejó el cliente */
 .caso-texto {
@@ -843,6 +842,40 @@ body.cover main { padding: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Regla de cobro: solo suman los servicios Completados (los que están en
+   verde). Los demás se ven y se les puede poner precio, pero no entran en
+   ningún total. */
+.costos-rule-hint {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink2);
+  background: var(--warn-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.costos-nocobra {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--warn-tx);
+  background: var(--warn-bg);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.costos-item.no-cobra {
+  opacity: .6;
+}
+
+.costos-item.no-cobra .costos-check {
+  cursor: not-allowed;
 }
 
 .costos-date {
