@@ -16,3 +16,5 @@ Thumbs.db
 .DS_Store
 system-commandline-sentinel-files/
 
+# ejemplo del informe que se abre desde el navegador (no es parte de la app)
+ejemplo-informe.html

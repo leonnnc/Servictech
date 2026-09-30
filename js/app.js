@@ -1530,11 +1530,9 @@ function vInformeForm(qs) {
     return xf === fechaServicio;
   });
 
-  // Consolidar novedad, trabajo y solución de las tareas del día si no están en la tarea puntual
-  var defaultNovedad = infExistente ? (infExistente.novedad || '') : '';
-  var defaultTrabajo = infExistente ? (infExistente.trabajo_realizado || '') : '';
-  var defaultSolucion = infExistente ? (infExistente.solucion || '') : '';
-  var defaultRecom = infExistente ? (infExistente.recomendaciones || '') : '';
+  /* Los servicios que entran al informe. El detalle va por servicio (sección 1),
+     así que ya no se consolidan textos de todas las tareas en secciones
+     separadas: eso era justamente lo que no se leía. */
   var taskIds = [];
   var taskDescList = [];
 
@@ -1542,18 +1540,7 @@ function vInformeForm(qs) {
     taskIds.push(tk.id);
     var prefix = dayTasks.length > 1 ? '(' + (idx + 1) + ') ' : '';
     if (tk.descripcion_trabajo) taskDescList.push(prefix + tk.descripcion_trabajo);
-    if (!infExistente) {
-      var motivo = tk.novedad || tk.descripcion_trabajo;
-      if (motivo) defaultNovedad += (defaultNovedad ? '\n' : '') + prefix + motivo;
-      if (tk.trabajo_realizado) defaultTrabajo += (defaultTrabajo ? '\n' : '') + prefix + tk.trabajo_realizado;
-      if (tk.solucion) defaultSolucion += (defaultSolucion ? '\n' : '') + prefix + tk.solucion;
-      if (tk.recomendaciones) defaultRecom += (defaultRecom ? '\n' : '') + prefix + tk.recomendaciones;
-    }
   });
-
-  if (!infExistente && !defaultTrabajo && taskDescList.length) {
-    defaultTrabajo = taskDescList.join('\n');
-  }
 
   // Repuestos cambiados en las tareas de este día o en el informe
   var changed = [];
@@ -1593,11 +1580,9 @@ function vInformeForm(qs) {
     '<div class="kv"><span>' + (mesPeriodo ? 'Servicios del mes (' : 'Labores del día (') + taskIds.length + ')</span><b>' + esc(taskDescList.join(' | ') || 'Servicio general') + '</b></div>' +
     '</div>' +
     '<form class="card pad" data-f="inf" data-id="' + (infExistente ? esc(infExistente.id) : '') + '" data-empresa="' + esc(empId) + '" data-fecha="' + esc(mesPeriodo ? '' : fechaServicio) + '" data-mes="' + esc(mesPeriodo) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
-    '<h2 class="sec">Contenido del informe</h2>' +
-    fieldArea('1. Novedad: lo que se encontró', 'novedad', defaultNovedad, 'Diagnóstico en el sitio') +
-    fieldArea('2. Trabajo realizado', 'trabajo_realizado', defaultTrabajo, 'Qué acciones se ejecutaron') +
-    fieldArea('3. Solución / estado final', 'solucion', defaultSolucion, 'Equipo operativo, entrega conforme…') +
-    fieldArea('4. Conclusiones y recomendaciones del técnico', 'recomendaciones', defaultRecom, 'Próximo mantenimiento, sugerencias de uso, precauciones…') +
+    '<h2 class="sec">Servicios que entran al informe</h2>' +
+    '<p class="hint">Así va a salir impreso, <b>uno por servicio</b>: el servicio, el equipo, la falla, la solución y su costo. Se arma solo con los servicios del período, no hay que escribir nada acá.</p>' +
+    (taskIds.length ? informeServiciosHtml({ task_ids: taskIds }) : '<p class="hint">No hay servicios en este período.</p>') +
     '<h2 class="sec">Repuestos utilizados</h2>';
   if (!changed.length) html += '<p class="hint">Sin repuestos cambiados ' + (mesPeriodo ? 'en este mes.' : 'en esta jornada.') + '</p>';
   changed.forEach(function (r) {
@@ -1714,10 +1699,8 @@ function saveInforme(form) {
 
   if (infId && existingInf) {
     // MODO ACTUALIZACIÓN
-    existingInf.novedad = d.novedad;
-    existingInf.trabajo_realizado = d.trabajo_realizado;
-    existingInf.solucion = d.solucion;
-    existingInf.recomendaciones = d.recomendaciones || '';
+    /* Las secciones agregadas ya no se editan desde el formulario: el detalle
+       va por servicio. No se tocan, así los informes antiguos las conservan. */
     existingInf.observaciones_conformidad = obsConf;
     existingInf.conformidad = d.conformidad || 'Conforme';
     existingInf.nombre_responsable = d.nombre_responsable;
@@ -1756,10 +1739,7 @@ function saveInforme(form) {
       email: emp.email, telefono: emp.telefono, telefono_contacto: emp.telefono_contacto
     },
     equipo: eq ? { tipo: eq.tipo_equipo, marca: eq.marca, modelo: eq.modelo, serie: eq.nro_serie, ubicacion: eq.ubicacion, usuario: eq.usuario, ubicacion_empresa: eq.ubicacion_empresa } : null,
-    novedad: d.novedad,
-    trabajo_realizado: d.trabajo_realizado,
-    solucion: d.solucion,
-    recomendaciones: d.recomendaciones || '',
+
     repuestos: repuestosData,
     conformidad: d.conformidad || 'Conforme',
     observaciones_conformidad: obsConf,
@@ -1818,13 +1798,21 @@ function informeText(x) {
     if (eq.ubicacion) L.push('Ubicacion: ' + eq.ubicacion);
     L.push('');
   }
-  if (x.novedad) { L.push('LO QUE SE ENCONTRO'); L.push(x.novedad); L.push(''); }
-  if (x.trabajo_realizado) { L.push('LO QUE SE HIZO'); L.push(x.trabajo_realizado); L.push(''); }
+  var ssT = informeServicios(x);
+  if (ssT.length) {
+    L.push('DETALLE DE LOS SERVICIOS');
+    ssT.forEach(function (s) {
+      L.push(s.n + ') ' + s.codigo + (s.tipo ? ' · ' + s.tipo : '') + (s.fecha ? ' · ' + fmtDate(s.fecha) : ''));
+      L.push('   Equipo: ' + s.equipo);
+      L.push('   Falla reportada: ' + (s.falla || 'No se registró'));
+      L.push('   Solución / trabajo realizado: ' + (s.solucion || 'Pendiente de detalle'));
+      if (s.cobra) L.push('   Costo del servicio: ' + money(s.costo));
+      L.push('');
+    });
+  }
   if (x.repuestos && x.repuestos.length) {
     L.push('REPUESTOS'); x.repuestos.forEach(function (r) { L.push('- ' + r.pieza + ' x' + r.cantidad + ' (' + money(r.precio) + ')'); }); L.push('');
   }
-  if (x.solucion) { L.push('SOLUCION / ESTADO FINAL'); L.push(x.solucion); L.push(''); }
-  if (x.recomendaciones) { L.push('CONCLUSIONES Y RECOMENDACIONES DEL TECNICO'); L.push(x.recomendaciones); L.push(''); }
   if (x.monto != null && x.monto !== '') {
     L.push('MONTO DEL SERVICIO: ' + (x.moneda || 'S/ ') + Number(x.monto).toFixed(2));
     L.push('');
@@ -1894,6 +1882,66 @@ function generateReportPdf(x, callback) {
   });
 }
 
+/* =========================================================
+   DETALLE DE LOS SERVICIOS (estructura del informe)
+   Un bloque por servicio atendido, en este orden:
+     1) el servicio (código, tipo y fecha)
+     2) el equipo en cuestión (tipo, marca, modelo, serie y usuario)
+     3) la falla reportada
+     4) la solución / trabajo realizado
+     5) el costo del servicio (solo si ya se cerró: los pendientes no se cobran)
+   ========================================================= */
+function servEquipoTexto(eq) {
+  if (!eq) return 'Sin equipo registrado';
+  var t = [eq.tipo_equipo, eq.marca, eq.modelo].filter(Boolean).join(' ');
+  if (!t) t = 'Equipo #' + eq.id;
+  if (eq.nro_serie) t += ' · S/N ' + eq.nro_serie;
+  if (eq.usuario) t += ' · ' + eq.usuario;
+  return t;
+}
+
+function informeServicios(x) {
+  var ids = (x && x.task_ids) ? x.task_ids : [];
+  return Store.db.tareas.filter(function (t) { return ids.indexOf(t.id) >= 0; }).map(function (t, i) {
+    return {
+      n: i + 1,
+      codigo: t.codigo || ('T-' + t.id),
+      tipo: t.tipo_tarea || '',
+      fecha: servicioFecha(t),
+      equipo: servEquipoTexto(Store.get('equipos', t.id_equipo)),
+      falla: t.novedad || t.descripcion_trabajo || '',
+      solucion: t.trabajo_realizado || t.solucion || '',
+      cobra: cuentaEnCostos(t),
+      costo: parseFloat(t.costo) || 0
+    };
+  });
+}
+
+function informeServiciosHtml(x, ss) {
+  var lista = ss || informeServicios(x);
+  if (!lista.length) return '';
+  var html = '<div class="rep-sec-card rep-sec-servicios">' +
+    '<div class="rep-sec-header">' +
+    '<svg viewBox="0 0 24 24"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg>' +
+    '1. Detalle de los servicios atendidos' +
+    '</div><div class="rep-serv-list">';
+  lista.forEach(function (s) {
+    html += '<div class="rep-serv">' +
+      '<div class="rep-serv-head">' +
+      '<span class="rep-serv-num">' + s.n + '</span>' +
+      '<span class="rep-serv-code">' + esc(s.codigo) + '</span>' +
+      (s.tipo ? '<span class="rep-serv-tipo">' + esc(s.tipo) + '</span>' : '') +
+      (s.fecha ? '<span class="rep-serv-fecha">' + esc(fmtDate(s.fecha)) + '</span>' : '') +
+      '</div>' +
+      '<div class="rep-serv-row"><span class="k">Equipo</span><span class="v">' + esc(s.equipo) + '</span></div>' +
+      '<div class="rep-serv-row"><span class="k">Falla reportada</span><span class="v">' + esc(s.falla || 'No se registró') + '</span></div>' +
+      '<div class="rep-serv-row"><span class="k">Solución / trabajo realizado</span><span class="v">' + esc(s.solucion || 'Pendiente de detalle') + '</span></div>' +
+      (s.cobra ? '<div class="rep-serv-row rep-serv-costo"><span class="k">Costo del servicio</span><span class="v">' + money(s.costo) + '</span></div>' : '') +
+      '</div>';
+  });
+  return html + '</div></div>';
+}
+
 function vInforme(id) {
   var x = Store.get('informes', id);
   if (!x) { location.hash = '#/informes'; return; }
@@ -1910,6 +1958,15 @@ function vInforme(id) {
   if (x.repuestos && x.repuestos.length) {
     x.repuestos.forEach(function (r) { totalRepuestos += (Number(r.cantidad) || 0) * (Number(r.precio) || 0); });
   }
+
+  /* Los servicios del informe: van primero, un bloque por servicio (servicio →
+     equipo → falla → solución → costo). Si no hay servicios, la numeración de
+     las secciones arranca en 1 como antes. */
+  /* Los servicios del informe: van primero, un bloque por servicio (servicio →
+     equipo → falla → solución → costo). Cada sección que sí tenga contenido
+     toma el número siguiente, así la numeración no queda con huecos. */
+  var ss = informeServicios(x);
+  var secN = ss.length ? 1 : 0;
 
   var html = '<div class="stack no-print">' + '<a class="btn ghost sm" href="#/informes">← Volver a Informes</a>' +
     '<div class="btnrow">' +
@@ -1968,29 +2025,16 @@ function vInforme(id) {
     '</div>' +
 
     /* Sección 1: Lo que se encontró */
-    '<div class="rep-sec-card rep-sec-novedad">' +
-    '<div class="rep-sec-header">' +
-    '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>' +
-    '1. Lo que se encontró (Diagnóstico inicial / Novedad)' +
-    '</div>' +
-    '<div class="rep-sec-body">' + esc(x.novedad || 'No se registraron anomalías previas.') + '</div>' +
-    '</div>' +
+    /* Sección 1: detalle de los servicios, uno por bloque */
 
-    /* Sección 2: Trabajo realizado */
-    '<div class="rep-sec-card rep-sec-trabajo">' +
-    '<div class="rep-sec-header">' +
-    '<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6-9.6 9.6a1 1 0 0 1-.7.3H4v-2a1 1 0 0 1 .3-.7l9.6-9.6 1.6 1.6a1 1 0 0 0 1.4-1.4l-2.3-2.3a1 1 0 0 0-1.4 0z"/></svg>' +
-    '2. Trabajo realizado (Acciones técnicas ejecutadas)' +
-    '</div>' +
-    '<div class="rep-sec-body">' + esc(x.trabajo_realizado || 'Mantenimiento preventivo / correctivo general.') + '</div>' +
-    '</div>';
+    (ss.length ? informeServiciosHtml(x, ss) : '');
 
   /* Sección 3: Repuestos */
   if (x.repuestos && x.repuestos.length) {
     html += '<div class="rep-sec-card rep-sec-repuestos">' +
       '<div class="rep-sec-header">' +
       '<svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>' +
-      '3. Repuestos y piezas sustituidas' +
+      (secN + 1) + '. Repuestos y piezas sustituidas' +
       '</div>' +
       '<div style="padding:10px 14px; overflow-x:auto;">' +
       '<table class="rep-tbl"><thead><tr><th>Descripción de la pieza</th><th style="text-align:center; width:70px;">Cant.</th><th style="text-align:right; width:110px;">P. Unit.</th><th style="text-align:right; width:120px;">Subtotal</th></tr></thead><tbody>';
@@ -2004,27 +2048,8 @@ function vInforme(id) {
       '</div></div>';
   }
 
-  /* Sección 4: Solución y estado final del equipo */
-  var solNum = (x.repuestos && x.repuestos.length) ? '4' : '3';
-  html += '<div class="rep-sec-card rep-sec-solucion">' +
-    '<div class="rep-sec-header">' +
-    '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
-    solNum + '. Solución y estado final en que queda el equipo' +
-    '</div>' +
-    '<div class="rep-sec-body">' + esc(x.solucion || 'Equipo operativo y probado conforme en presencia del cliente.') + '</div>' +
-    '</div>';
 
-  /* Sección 5: Conclusiones y recomendaciones del técnico */
-  if (x.recomendaciones) {
-    var recNum = (Number(solNum) + 1);
-    html += '<div class="rep-sec-card rep-sec-recom">' +
-      '<div class="rep-sec-header">' +
-      '<svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7zM9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9v1z"/></svg>' +
-      recNum + '. Conclusiones y recomendaciones del técnico' +
-      '</div>' +
-      '<div class="rep-sec-body">' + esc(x.recomendaciones) + '</div>' +
-      '</div>';
-  }
+
 
   /* Monto del servicio (va sin numerar: es el importe, no una sección de contenido) */
   if (x.monto != null && x.monto !== '') {
