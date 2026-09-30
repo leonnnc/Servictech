@@ -1627,7 +1627,7 @@ function vInformeForm(qs) {
     field('Cargo', 'cargo_responsable', infExistente ? (infExistente.cargo_responsable || '') : (emp.cargo_contacto || ''), 'text', 'Ej: Administrador') +
     '</div>' +
     '<button class="btn primary block" type="submit" id="btnGuardarInforme">' + (infExistente ? 'Actualizar informe' : 'Guardar informe y cerrar jornada') + '</button>' +
-    '<p class="hint" id="informeModoHint">' + (infExistente ? 'Los cambios se actualizarán manteniendo el código del informe.' : ('Al guardar, los servicios de ' + (mesPeriodo ? 'este mes' : 'esta fecha') + ' pasarán a Completados y el informe quedará archivado.')) + '</p>' +
+    '<p class="hint" id="informeModoHint">' + (infExistente ? 'Los cambios se actualizarán manteniendo el código del informe.' : ('Al guardar, el informe queda archivado con ' + (mesPeriodo ? 'los servicios de este mes' : 'los servicios de esta fecha') + '. Los que sigan sin cerrar siguen pendientes y no suman hasta que los cierres.')) + '</p>' +
     '</form></div>';
   $('#view').innerHTML = html;
   window._pads = {};
@@ -1755,13 +1755,17 @@ function saveInforme(form) {
     cargo: row.cargo_responsable
   });
 
-  // Marcar todos los servicios del período (día o mes) como completados
+  /* El informe NO cambia el estado de los servicios: solo deja marcado que ya
+     salieron en un informe. Un servicio que sigue Pendiente (el trabajo no se
+     cerró) tiene que seguir pendiente dentro del informe —sale en ámbar y no
+     suma— hasta que se cierre; si no, al emitir el informe se estaría cerrando y
+     cobrando trabajo sin terminar. A los que ya están cerrados se les pone la
+     fecha de fin si todavía no la tenían. */
   taskIds.forEach(function (tid) {
-    Store.upd('tareas', tid, {
-      estado: 'Completada',
-      informe_emitido: true,
-      fecha_fin: Store.nowLocal()
-    });
+    var t = Store.get('tareas', tid);
+    var cambios = { informe_emitido: true };
+    if (t && cuentaEnCostos(t) && !t.fecha_fin) cambios.fecha_fin = Store.nowLocal();
+    Store.upd('tareas', tid, cambios);
   });
 
   toast('Informe ' + row.codigo + ' guardado');
