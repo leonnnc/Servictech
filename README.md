@@ -1,4 +1,4 @@
-# Servitech v1.4.9 — App de soporte técnico
+# Servitech v1.4.15 — App de soporte técnico
 
 PWA (web app instalable) para trabajo de soporte técnico en campo: **empresas, equipos, banco de servicios, costos de servicios, repuestos e informes con firma y PDF**.
 
@@ -12,11 +12,10 @@ Hecha en HTML/CSS/JavaScript puro (sin frameworks ni build), con los datos guard
 - **Servicios**: banco de servicios con estados (Pendiente, En curso, Esperando repuestos, Completado, Cancelado), novedad y el campo único *Trabajo Realizado / Solución de Servicio*. Los **⏳ Pendientes** salen en su propio bloque arriba de todo (del más antiguo al más nuevo), para que no se pierdan entre los ya atendidos. Se pueden ver **📅 por día** (los servicios de la misma fecha se juntan en un solo bloque con su subtotal y el enlace al **resumen del día**) o **🗓️ por mes** (el mes se junta y se separa por empresa, con la opción de **juntar los servicios del mes en un solo informe por empresa** cuando hay 2 o más).
 - **Resumen en pantalla** (`#/resumen`): vista previa imprimible que junta los servicios de un día o de un mes (con o sin empresa) en un solo listado, con subtotal por día y total del período. Desde ahí se emite el informe oficial.
 - **Costos**: listado completo de servicios con edición directa de precios, filtros rápidos por fechas (Hoy, 7 días, Este mes, Rango), subtotales por jornada, cálculo dinámico de los servicios seleccionados y **generación de liquidación en PDF para envío directo por WhatsApp y descarga**. Solo suman los servicios **Completados** (los que están en verde): los que están Pendiente, En curso, Esperando repuestos o Cancelada no entran en ningún total, ni en el subtotal del día ni en el mes.
-@@@MONTO1@@@
-- **El informe no cobra aparte**: no tiene un "monto total" ni un importe suelto. El cobro va donde corresponde: el costo de cada servicio se define al cerrarlo (*Costo de mano de obra / servicio*, y el módulo **Costos**) y en el informe aparece junto a ese servicio, dentro de su bloque del detalle.
+- **El informe cierra con el cuadro del total**: el cobro no va "aparte" (el costo de cada servicio se define al cerrarlo, campo *Costo de mano de obra / servicio*, y el módulo **Costos**): en el informe ese costo aparece dentro del bloque de su servicio y al final del detalle va el cuadro **Total de los servicios**, que suma **solo los Completados**. El costo de un servicio que todavía no se cierra se muestra con la marca **no suma**.
 - **Repuestos / compras**: estados *Por comprar → Pedido → Recibido → Cambiado*.
-- **Informes de servicio**: emisión consolidada por empresa y fecha de jornada **o por mes completo** (un solo informe por empresa con todos los servicios de ese mes), numeración correlativa anual, repuestos usados, **firma del responsable y del técnico**, descarga directa en PDF y envío directo en PDF por WhatsApp. El informe es **solo el documento técnico: no pide ni imprime monto** — el cobro del servicio se establece al cerrarlo (campo *Costo de mano de obra / servicio* del servicio, y el módulo Costos). Los informes antiguos que ya tenían un monto guardado lo siguen mostrando, porque son documentos ya emitidos.  El cuerpo del informe es el **detalle de los servicios**, un bloque por cada servicio que entra, en este orden: **el servicio** (código, tipo y fecha), **el equipo en cuestión** (tipo, marca, modelo, serie y usuario), **la falla reportada**, **la solución / trabajo realizado** y **el costo de ese servicio** (solo aparece si el servicio ya está cerrado como *Completada*). Después van los **repuestos utilizados** y las **firmas**. Ya no hay secciones aparte con los textos de todos los servicios juntos: eso era lo que no se leía.
-- **Conformidad del servicio, en el sitio**: al cerrar el informe el cliente está delante. Se marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**, se escribe la observación si hace falta y el cliente **firma con el dedo** en el celular (obligatorio), además de su nombre y cargo. Todo eso queda en el informe y en el PDF.
+- **Informes de servicio**: emisión consolidada por empresa y fecha de jornada **o por mes completo** (un solo informe por empresa con todos los servicios de ese mes), numeración correlativa anual, repuestos usados, descarga directa en PDF y envío directo en PDF por WhatsApp. El informe es **solo el documento técnico: no pide ni imprime un monto suelto**. El cuerpo del informe es el **detalle de los servicios**, un bloque por cada servicio que entra, en este orden: **el servicio** (código, tipo y fecha), **el equipo en cuestión** (tipo, marca, modelo, serie y usuario), **la falla reportada**, **la solución / trabajo realizado** y **el costo de ese servicio**. En la cabecera sale el **técnico asignado** (uno solo). El servicio que todavía no se cierra se etiqueta **Pendiente** (en ámbar, en vez de su tipo) y su costo se muestra con la marca **no suma**. El detalle cierra con el cuadro **Total de los servicios** (cuántos suman, cuántos están pendientes y el monto), que suma **solo los Completados**. Después van los **repuestos utilizados** y el cierre con los datos del cliente. Ya no hay secciones aparte con los textos de todos los servicios juntos: eso era lo que no se leía.
+- **Conformidad del servicio, en el sitio**: al cerrar el informe el cliente está delante. Se marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**, se escribe la observación si hace falta y se dejan **los datos del cliente** (nombre y cargo). *La firma queda por definir: hoy el formulario ya no pide firmar y el documento sale con los dos recuadros en blanco.*
 - **Centro de soluciones**: cuando el cliente firma *No conforme* o deja una observación, se abre un caso con su texto, estado (*Pendiente* / *Resuelto*), tu nota de solución y la fecha de cierre. Se entra desde la portada (*Quejas por resolver*).
 - **Ajustes**: sincronización Firebase con **inicio de sesión por correo/contraseña** (usa la misma cuenta en todos tus equipos para ver los mismos datos), botones *Subir este dispositivo* y *Bajar desde la nube*, copia automática de seguridad antes de reemplazar datos, respaldo/restauración JSON, nombre del técnico y moneda. El botón **Borrar todos los datos** avisa del alcance real: con sesión iniciada borra también en la nube y en los otros equipos, y confirma al terminar si llegó a subir.
 
@@ -106,15 +105,18 @@ node pruebas\test-servicios-mes.js
 node pruebas\test-borrado.js
 ```
 
-`test-conformidad.js` hace **51 comprobaciones**: que el formulario pide la firma del
-cliente en el sitio (nombre y firma obligatorios, monto mayor que 0), que *No conforme*
-abre un caso en el centro de soluciones, que las vistas se dibujan sin errores, que los
-informes antiguos que quedaron pendientes se siguen abriendo, y que **no queda rastro**
-del circuito por enlace (ni botones, ni funciones, ni zonas públicas en las reglas).
+`test-conformidad.js` hace **83 comprobaciones**: que el formulario pide los datos del
+cliente (nombre y cargo, sin firmas por ahora), que *No conforme* abre un caso en el centro
+de soluciones, que las vistas se dibujan sin errores, que los informes antiguos que
+quedaron pendientes se siguen abriendo, y que **no queda rastro** del circuito por enlace
+(ni botones, ni funciones, ni zonas públicas en las reglas).
 
-`test-servicios-mes.js` hace **58 comprobaciones** del agrupado por día y por mes, del
+`test-servicios-mes.js` hace **68 comprobaciones** del agrupado por día y por mes, del
 resumen en pantalla y del informe consolidado del mes (un informe por empresa, que los
-servicios del mes queden Completados y que el código del informe sea correlativo).
+servicios del mes queden Completados y que el código del informe sea correlativo), y del
+detalle del informe: que el técnico asignado sea **uno solo**, que un pendiente salga
+etiquetado **Pendiente** con su costo marcado *no suma* y que el **cuadro del total** sume
+solo los servicios cerrados.
 
 `test-borrado.js` hace **39 comprobaciones** del borrado, con dos equipos simulados
 sobre el `applySnap` y el `mergeDB` reales: que el borrado total no vuelva con la copia
@@ -161,32 +163,38 @@ reconectar.
 
 ## Conformidad del servicio (en el sitio)
 
-La conformidad se recoge siempre **en el sitio**, con el cliente delante y firmando en
-tu celular. No hay enlaces ni páginas públicas: así el servicio queda cerrado en la
-misma visita y no queda nada pendiente.
+La conformidad se recoge siempre **en el sitio**, con el cliente delante. No hay enlaces
+ni páginas públicas: así el servicio queda cerrado en la misma visita y no queda nada
+pendiente.
 
 1. En el informe, marca **✅ Conforme** o **⚠️ No conforme (Observaciones pendientes)**.
 2. Si hace falta, escribe la **observación** (obligatoria cuando es *No conforme*).
-3. Escribe el **nombre y cargo del responsable** del cliente y pasa el celular para que
-   **firme con el dedo**. La firma del cliente es obligatoria; la del técnico es opcional.
-4. Al guardar, el informe queda emitido con su número correlativo y el PDF/listado para
-   WhatsApp ya sale con la firma.
+3. Deja **los datos del responsable** del cliente: nombre y cargo.
+4. Al guardar, el informe queda emitido con su número correlativo y sale el PDF/listado
+   para WhatsApp.
+
+> **La firma está en pausa**: el formulario ya **no pide firmar** y el informe se emite con
+> los datos del cliente. El documento todavía imprime los dos recuadros de firma (en blanco)
+> hasta que se decida cómo se firma. Los informes viejos conservan la firma que tengan
+> guardada.
 
 Detalles que conviene saber:
 
-- **El informe no cobra**: no pide ni imprime monto. Es solo el documento técnico (novedad,
-  trabajo realizado, repuestos y firmas); el importe se establece al cerrar el servicio,
-  en el campo *Costo de mano de obra / servicio*, y se resume en el módulo **Costos**.
-  Los informes antiguos que ya tenían monto guardado conservan su cifra.
+- **El informe no cobra aparte**: no pide ni imprime un monto suelto. Es el documento
+  técnico (el detalle de los servicios, los repuestos y el cierre). El importe de cada
+  servicio se establece al cerrarlo, en el campo *Costo de mano de obra / servicio*, y se
+  resume en el módulo **Costos**; el informe lo cierra el cuadro **Total de los servicios**
+  (solo suma los **Completados**). Los informes antiguos que ya tenían monto guardado
+  conservan su cifra.
 
 - **Las quejas no se pierden**: si el cliente firma *No conforme* o deja una observación,
   se abre automáticamente un caso en el **Centro de soluciones** para resolverlo y dejar
   constancia de qué se hizo.
-- **No hace falta internet**: la firma y el guardado funcionan sin conexión; si hay sesión
-  iniciada, todo se sube a la nube al reconectar.
+- **No hace falta internet**: el guardado y la conformidad funcionan sin conexión; si hay
+  sesión iniciada, todo se sube a la nube al reconectar.
 - **Informes antiguos**: los que se emitieron con la versión anterior como *Conformidad
   pendiente* se siguen abriendo y se muestran como **PENDIENTE**; basta **Editar informe**
-  para dejar la conformidad firmada en el sitio.
+  para dejar marcada la conformidad del cliente.
 
 ## Comportamiento de la app
 
@@ -232,8 +240,8 @@ assets/               íconos
 ```
 
 Nota: GitHub Pages solo sirve archivos estáticos, así que no hay backend: toda la
-app funciona en el navegador (datos, PDF y firma) y la conformidad se firma en el
-sitio del cliente.
+app funciona en el navegador (datos y PDF) y la conformidad se marca en el sitio del
+cliente.
 
 
 > **Al publicar una versión nueva** hay que subir el número en cuatro sitios, o algún
@@ -242,4 +250,3 @@ sitio del cliente.
 > `ASSETS` de `sw.js` y el nombre de `CACHE` de `sw.js`. Las suites de pruebas comprueban
 > que los cuatro vayan a la par. La app avisa sola cuando detecta una versión más nueva
 > publicada y ofrece actualizarse al momento.
-sitio del cliente.

@@ -404,7 +404,9 @@ function vEmpresa(id) {
     '<button class="btn danger sm" data-act="del-emp" data-id="' + esc(e.id) + '">Eliminar</button>' +
     '</div></div>';
 
-  html += '<h2 class="sec">Equipos (' + eqs.length + ')</h2>';
+  html += '<div class="line" style="margin-bottom:6px;"><h2 class="sec" style="margin:0;">Equipos (' + eqs.length + ')</h2>' +
+    '<a class="btn primary sm" href="#/equipo-form?empresa=' + esc(e.id) + '">+ Registrar equipo</a></div>';
+  if (!eqs.length) html += '<div class="empty sm"><p>Sin equipos registrados en esta empresa.</p></div>';
   eqs.forEach(function (q, idx) {
     var fReg = q.fecha_registro ? fmtDate(q.fecha_registro) : '';
     var metaArr = ['Serie ' + esc(q.nro_serie || '—')];
@@ -422,7 +424,6 @@ function vEmpresa(id) {
       '<div class="row-meta"><a class="btn ghost sm" href="#/equipo-form?empresa=' + esc(e.id) + '&edit=' + esc(q.id) + '">Editar</a>' +
       '<button class="btn danger sm" data-act="del-equipo" data-id="' + esc(q.id) + '">Quitar</button></div></div>';
   });
-  html += '<a class="btn secondary sm" href="#/equipo-form?empresa=' + esc(e.id) + '">+ Registrar equipo</a>';
 
   html += '<div class="line" style="margin-top:18px;margin-bottom:6px;"><h2 class="sec" style="margin:0;">Jornadas y servicios (' + tars.length + ')</h2>' +
     '<a class="btn primary sm" href="#/tarea-form?empresa=' + esc(e.id) + '">+ Nuevo servicio</a></div>';
@@ -749,7 +750,20 @@ function tarListHtml(q, est, agr) {
   var pend = est ? [] : list.filter(esServPendiente);
   var resto = pend.length ? list.filter(function (t) { return !esServPendiente(t); }) : list;
 
-  if (agr === 'mes') return (pend.length ? pendientesBlockHtml(pend) : '') + tarMesHtml(resto);
+  /* Contadores: cuentan todos los servicios del período */
+  var totFec = {}, pendFec = {}, totMes = {}, pendMes = {};
+  list.forEach(function (t) {
+    var f = t.fecha_trabajo || t.fecha_programada || t.fecha_creacion || Store.today();
+    var m = Store.mesDe(t);
+    totFec[f] = (totFec[f] || 0) + 1;
+    totMes[m] = (totMes[m] || 0) + 1;
+    if (esServPendiente(t)) {
+      pendFec[f] = (pendFec[f] || 0) + 1;
+      pendMes[m] = (pendMes[m] || 0) + 1;
+    }
+  });
+
+  if (agr === 'mes') return (pend.length ? pendientesBlockHtml(pend) : '') + tarMesHtml(resto, totMes, pendMes);
 
   // Agrupar por fecha (los servicios de la misma fecha se juntan aquí)
   var groups = {};
@@ -765,7 +779,8 @@ function tarListHtml(q, est, agr) {
     var sub = sumCostos(groups[f]);
     html += '<div class="day-card">' +
       '<div class="day-head">' +
-      '<div class="day-title"><span>📅 ' + esc(dayLabel(f)) + '</span><span class="day-badge">' + pl(groups[f].length, 'servicio', 'servicios') + '</span></div>' +
+      '<div class="day-title"><span>📅 ' + esc(dayLabel(f)) + '</span><span class="day-badge">' + pl(totFec[f] || groups[f].length, 'servicio', 'servicios') + '</span>' +
+        (pendFec[f] ? '<span class="badge warn">' + pendFec[f] + ' pendiente' + (pendFec[f] > 1 ? 's' : '') + '</span>' : '') + '</div>' +
       '<div class="day-actions">' +
       (sub > 0 ? '<span class="mes-sub">' + money(sub) + '</span>' : '') +
       '<a class="btn ghost sm" style="font-size:11px;padding:3px 8px;" href="#/resumen?fecha=' + esc(f) + '">👁️ Resumen del día</a>' +
@@ -779,7 +794,8 @@ function tarListHtml(q, est, agr) {
 }
 
 /* --- Vista por mes: el mes se junta y se separa por empresa --- */
-function tarMesHtml(list) {
+function tarMesHtml(list, totMes, pendMes) {
+  totMes = totMes || {}; pendMes = pendMes || {};
   var meses = {};
   list.forEach(function (t) {
     var m = Store.mesDe(t);
@@ -799,7 +815,8 @@ function tarMesHtml(list) {
     html += '<div class="day-card">' +
       '<div class="day-head">' +
       '<div class="day-title"><span>🗓️ ' + esc(mesLabel(m)) + '</span>' +
-      '<span class="day-badge">' + pl(nServ, 'servicio', 'servicios') + ' · ' + pl(grupos.length, 'empresa', 'empresas') + '</span></div>' +
+      '<span class="day-badge">' + pl(totMes[m] || nServ, 'servicio', 'servicios') + ' · ' + pl(grupos.length, 'empresa', 'empresas') + '</span>' +
+      (pendMes[m] ? '<span class="badge warn">' + pendMes[m] + ' pendiente' + (pendMes[m] > 1 ? 's' : '') + '</span>' : '') + '</div>' +
       '<div class="day-actions">' +
       (totalMes > 0 ? '<span class="mes-sub">Total del mes: <b>' + money(totalMes) + '</b></span>' : '') +
       '</div>' +
@@ -1534,13 +1551,13 @@ function vInformeForm(qs) {
      así que ya no se consolidan textos de todas las tareas en secciones
      separadas: eso era justamente lo que no se leía. */
   var taskIds = [];
-  var taskDescList = [];
 
-  dayTasks.forEach(function (tk, idx) {
-    taskIds.push(tk.id);
-    var prefix = dayTasks.length > 1 ? '(' + (idx + 1) + ') ' : '';
-    if (tk.descripcion_trabajo) taskDescList.push(prefix + tk.descripcion_trabajo);
-  });
+  /* Quién atiende: UN solo técnico, el del primer servicio del informe (el mismo
+     que guarda el informe). Antes se listaban todos los distintos y, si el campo
+     estaba escrito distinto entre servicios, aparecían dos nombres iguales. */
+  var tecnicosDia = String((dayTasks[0] && dayTasks[0].tecnico_responsable) || '').trim() ||
+    Store.db.meta.tecnico || '—';
+  dayTasks.forEach(function (tk) { taskIds.push(tk.id); });
 
   // Repuestos cambiados en las tareas de este día o en el informe
   var changed = [];
@@ -1577,7 +1594,7 @@ function vInformeForm(qs) {
       ? '<div class="kv"><span>Período del informe</span><b>🗓️ ' + esc(mesLabel(mesPeriodo)) + '</b></div>'
       : '<div class="kv"><span>Fecha de atención</span><b>📅 ' + esc(dayLabel(fechaServicio)) + '</b></div>') +
     (eq ? '<div class="kv"><span>Equipo</span><b>' + esc(eqLabel(eq)) + ' · Serie ' + esc(eq.nro_serie || '—') + '</b></div>' : '') +
-    '<div class="kv"><span>' + (mesPeriodo ? 'Servicios del mes (' : 'Labores del día (') + taskIds.length + ')</span><b>' + esc(taskDescList.join(' | ') || 'Servicio general') + '</b></div>' +
+    '<div class="kv"><span>Técnico asignado</span><b>' + esc(tecnicosDia) + '</b></div>' +
     '</div>' +
     '<form class="card pad" data-f="inf" data-id="' + (infExistente ? esc(infExistente.id) : '') + '" data-empresa="' + esc(empId) + '" data-fecha="' + esc(mesPeriodo ? '' : fechaServicio) + '" data-mes="' + esc(mesPeriodo) + '" data-tasks="' + esc(taskIds.join(',')) + '">' +
     '<h2 class="sec">Servicios que entran al informe</h2>' +
@@ -1597,39 +1614,25 @@ function vInformeForm(qs) {
   var obsGuardada = infExistente ? (infExistente.observaciones_conformidad || '') : '';
 
   html += '<h2 class="sec">Conformidad del servicio</h2>' +
-    '<p class="hint">Marca el resultado y recoge la firma del cliente antes de irte.</p>' +
+    '<p class="hint">Marca el resultado del servicio y deja registrados los datos del cliente.</p>' +
     '<div class="conformidad-selector">' +
     '<label class="conf-opt"><input type="radio" name="conformidad" value="Conforme"' + (isConforme ? ' checked' : '') + '> <span>✅ Conforme (Servicio recibido a satisfacción)</span></label>' +
     '<label class="conf-opt opt-no"><input type="radio" name="conformidad" value="No conforme"' + (!isConforme ? ' checked' : '') + '> <span>⚠️ No conforme (Observaciones pendientes)</span></label>' +
     '</div>' +
     fieldArea('Observaciones de conformidad (opcional)', 'observaciones_conformidad', obsGuardada, 'Si es no conforme o requiere aclaración adicional') +
 
-    '<h2 class="sec">Datos del responsable y firmas</h2>' +
+    '<h2 class="sec">Datos del cliente</h2>' +
     '<div class="row2">' +
     field('Nombre del responsable', 'nombre_responsable', infExistente ? (infExistente.nombre_responsable || '') : (emp.persona_contacto || ''), 'text', 'Quien confirma en el cliente') +
     field('Cargo', 'cargo_responsable', infExistente ? (infExistente.cargo_responsable || '') : (emp.cargo_contacto || ''), 'text', 'Ej: Administrador') +
     '</div>' +
-    '<div class="fld"><span>Firma del responsable (cliente) *</span>' +
-    '<canvas id="padResp" class="sig"></canvas>' +
-    '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padResp">Limpiar firma</button></div>' +
-    '<div class="fld"><span>Firma del técnico</span>' +
-    '<canvas id="padTec" class="sig"></canvas>' +
-    '<button type="button" class="btn ghost sm" data-act="pad-clear" data-pad="padTec">Limpiar firma</button></div>' +
     '<button class="btn primary block" type="submit" id="btnGuardarInforme">' + (infExistente ? 'Actualizar informe' : 'Guardar informe y cerrar jornada') + '</button>' +
     '<p class="hint" id="informeModoHint">' + (infExistente ? 'Los cambios se actualizarán manteniendo el código del informe.' : ('Al guardar, los servicios de ' + (mesPeriodo ? 'este mes' : 'esta fecha') + ' pasarán a Completados y el informe quedará archivado.')) + '</p>' +
     '</form></div>';
   $('#view').innerHTML = html;
-  var padResp = initPad('padResp');
-  var padTec = initPad('padTec');
-  window._pads = { resp: padResp, tec: padTec };
+  window._pads = {};
   window._infEditando = !!infExistente;
   window._infMes = !!mesPeriodo;
-
-  // Si estamos editando, precargar las firmas previas en el canvas
-  if (infExistente) {
-    if (infExistente.firma_responsable && padResp) padResp.fromDataURL(infExistente.firma_responsable);
-    if (infExistente.firma_tecnico && padTec) padTec.fromDataURL(infExistente.firma_tecnico);
-  }
 
 }
 
@@ -1658,16 +1661,8 @@ function saveInforme(form) {
 
   /* Ya no se pide ni se valida un monto: el informe no cobra. */
 
-  var sigR = pads.resp ? pads.resp.dataURL() : '';
-  if (!sigR && existingInf && existingInf.firma_responsable) {
-    sigR = existingInf.firma_responsable;
-  }
-  if (!sigR) { toast('El responsable debe firmar con el dedo'); return; }
-
-  var sigT = pads.tec ? pads.tec.dataURL() : '';
-  if (!sigT && existingInf && existingInf.firma_tecnico) {
-    sigT = existingInf.firma_tecnico;
-  }
+  /* Las firmas quedaron fuera del formulario por ahora: el informe se guarda
+     con los datos del cliente, sin exigir firma. */
 
   // Repuestos cambiados en las tareas involucradas
   var changed = Store.coll('repuestos').filter(function (r) {
@@ -1707,8 +1702,7 @@ function saveInforme(form) {
     existingInf.cargo_responsable = d.cargo_responsable;
     /* No se toca existingInf.monto: si el informe es antiguo y tenía monto, se conserva. */
     existingInf.moneda = Store.db.meta.currency || 'S/ ';
-    if (sigR) existingInf.firma_responsable = sigR;
-    if (sigT) existingInf.firma_tecnico = sigT;
+    /* No se tocan las firmas guardadas: los informes viejos las conservan. */
     existingInf.fecha_modificacion = Store.nowLocal();
 
     Store.upd('informes', infId, existingInf);
@@ -1746,8 +1740,6 @@ function saveInforme(form) {
     nombre_responsable: d.nombre_responsable,
     cargo_responsable: d.cargo_responsable,
     moneda: Store.db.meta.currency || 'S/ ',
-    firma_responsable: sigR,
-    firma_tecnico: sigT,
     enviado_a: '',
     fecha_envio: ''
   };
@@ -1806,9 +1798,16 @@ function informeText(x) {
       L.push('   Equipo: ' + s.equipo);
       L.push('   Falla reportada: ' + (s.falla || 'No se registró'));
       L.push('   Solución / trabajo realizado: ' + (s.solucion || 'Pendiente de detalle'));
-      if (s.cobra) L.push('   Costo del servicio: ' + money(s.costo));
+      L.push('   Costo del servicio: ' + ((s.cobra || s.costo > 0) ? money(s.costo) : 'Por definir') +
+        (s.cobra ? '' : '  (no suma: servicio pendiente)'));
       L.push('');
     });
+    var cobrados = ssT.filter(function (s) { return s.cobra; });
+    var sumaT = 0;
+    cobrados.forEach(function (s) { sumaT += s.costo; });
+    L.push('TOTAL DE LOS SERVICIOS: ' + money(sumaT) +
+      (cobrados.length < ssT.length ? '  (solo los ' + cobrados.length + ' completados)' : ''));
+    L.push('');
   }
   if (x.repuestos && x.repuestos.length) {
     L.push('REPUESTOS'); x.repuestos.forEach(function (r) { L.push('- ' + r.pieza + ' x' + r.cantidad + ' (' + money(r.precio) + ')'); }); L.push('');
@@ -1889,7 +1888,7 @@ function generateReportPdf(x, callback) {
      2) el equipo en cuestión (tipo, marca, modelo, serie y usuario)
      3) la falla reportada
      4) la solución / trabajo realizado
-     5) el costo del servicio (solo si ya se cerró: los pendientes no se cobran)
+     5) el costo del servicio (el pendiente lo muestra, pero marcado como que no suma)
    ========================================================= */
 function servEquipoTexto(eq) {
   if (!eq) return 'Sin equipo registrado';
@@ -1907,6 +1906,7 @@ function informeServicios(x) {
       n: i + 1,
       codigo: t.codigo || ('T-' + t.id),
       tipo: t.tipo_tarea || '',
+      estado: t.estado || '',
       fecha: servicioFecha(t),
       equipo: servEquipoTexto(Store.get('equipos', t.id_equipo)),
       falla: t.novedad || t.descripcion_trabajo || '',
@@ -1920,6 +1920,12 @@ function informeServicios(x) {
 function informeServiciosHtml(x, ss) {
   var lista = ss || informeServicios(x);
   if (!lista.length) return '';
+  /* Cuadro del total: solo suman los servicios cerrados. Los pendientes muestran
+     su costo, pero quedan fuera de la suma hasta que se terminen. */
+  var suman = lista.filter(function (s) { return s.cobra; });
+  var totalServ = 0;
+  suman.forEach(function (s) { totalServ += s.costo; });
+  var nPend = lista.length - suman.length;
   var html = '<div class="rep-sec-card rep-sec-servicios">' +
     '<div class="rep-sec-header">' +
     '<svg viewBox="0 0 24 24"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg>' +
@@ -1930,16 +1936,26 @@ function informeServiciosHtml(x, ss) {
       '<div class="rep-serv-head">' +
       '<span class="rep-serv-num">' + s.n + '</span>' +
       '<span class="rep-serv-code">' + esc(s.codigo) + '</span>' +
-      (s.tipo ? '<span class="rep-serv-tipo">' + esc(s.tipo) + '</span>' : '') +
+      (s.cobra
+        ? (s.tipo ? '<span class="rep-serv-tipo">' + esc(s.tipo) + '</span>' : '')
+        : '<span class="rep-serv-tipo rep-serv-pend">' + esc(s.estado || 'Pendiente') + '</span>') +
       (s.fecha ? '<span class="rep-serv-fecha">' + esc(fmtDate(s.fecha)) + '</span>' : '') +
       '</div>' +
       '<div class="rep-serv-row"><span class="k">Equipo</span><span class="v">' + esc(s.equipo) + '</span></div>' +
       '<div class="rep-serv-row"><span class="k">Falla reportada</span><span class="v">' + esc(s.falla || 'No se registró') + '</span></div>' +
       '<div class="rep-serv-row"><span class="k">Solución / trabajo realizado</span><span class="v">' + esc(s.solucion || 'Pendiente de detalle') + '</span></div>' +
-      (s.cobra ? '<div class="rep-serv-row rep-serv-costo"><span class="k">Costo del servicio</span><span class="v">' + money(s.costo) + '</span></div>' : '') +
+      '<div class="rep-serv-row rep-serv-costo' + (s.cobra ? '' : ' rep-serv-nocobra') + '">' +
+      '<span class="k">Costo del servicio' + (s.cobra ? '' : '<span class="rep-serv-tag">no suma</span>') + '</span>' +
+      '<span class="v">' + ((s.cobra || s.costo > 0) ? money(s.costo) : 'Por definir') + '</span></div>' +
       '</div>';
   });
-  return html + '</div></div>';
+  /* Cierre del detalle: el cuadro con el total de los servicios del informe. */
+  var totalHtml = '<div class="rep-serv-total">' +
+    '<div class="rep-serv-total-line"><span>Servicios que suman (completados)</span><b>' + suman.length + '</b></div>' +
+    (nPend ? '<div class="rep-serv-total-line"><span>Pendientes (no suman todavía)</span><b>' + nPend + '</b></div>' : '') +
+    '<div class="rep-serv-total-val"><span>Total de los servicios</span><b>' + money(totalServ) + '</b></div>' +
+    '</div>';
+  return html + '</div>' + totalHtml + '</div>';
 }
 
 function vInforme(id) {
@@ -2386,8 +2402,7 @@ function vCostos(qs) {
 
   sortedDates.forEach(function (f) {
     var dayTasks = groups[f];
-    var daySub = 0;
-    dayTasks.forEach(function (t) { daySub += (parseFloat(t.costo) || 0); });
+    var daySub = sumCostos(dayTasks);
 
     html += '<div class="day-card costos-day-group" data-date="' + esc(f) + '">' +
       '<div class="day-head day-head-costos">' +
@@ -2423,7 +2438,6 @@ function vCostos(qs) {
             (cobra ? '' : '<span class="costos-nocobra" title="Solo suman los servicios completados">no suma</span>') +
           '</div>' +
           '</div>' +
-        '</div>' +
         '<div class="costos-item-body">' +
           '<div class="costos-desc"><a href="#/tarea/' + esc(t.id) + '" class="costos-link">' + esc(desc) + '</a></div>' +
           '<div class="costos-sub">' + esc(emp) + (equ ? ' · ' + esc(equ) : '') + '</div>' +
@@ -2445,11 +2459,20 @@ function vCostos(qs) {
   });
 
   html += '</div></div>';
+
+  /* Cierre de la lista: lo que suma la selección. Antes la lista terminaba en
+     el último servicio, sin ningún total, y parecía que faltaba algo. */
+  html += '<div class="costos-cierre">' +
+      '<div class="costos-cierre-line"><span>Servicios que suman</span><b id="cierreN">0</b></div>' +
+      '<div class="costos-cierre-line" id="cierreNoWrap"><span>No suman (pendientes, en curso, esperando repuestos o cancelados)</span><b id="cierreNo">0</b></div>' +
+      '<div class="costos-cierre-total"><span>TOTAL SELECCIONADO</span><b id="cierreTotal">' + currSym + '0.00</b></div>' +
+    '</div>';
   $('#view').innerHTML = html;
 
   // Lógica de cálculo reactivo
   function recalc() {
     var sumSel = 0;
+    var countNo = 0;
     var sumVis = 0;
     var countSel = 0;
     var countVis = 0;
@@ -2474,6 +2497,7 @@ function vCostos(qs) {
       var card = $('.costos-item[data-id="' + idStr + '"]');
       var isVis = card && card.style.display !== 'none';
       if (isVis && cuentaEnCostos(t)) { sumVis += cost; countVis++; }
+      if (isVis && !cuentaEnCostos(t)) countNo++;
 
       if (isVis && cuentaEnCostos(t) && selectedMap[idStr]) {
         sumSel += cost;
@@ -2491,6 +2515,15 @@ function vCostos(qs) {
     if (elSel) elSel.textContent = money(sumSel);
     if (elCount) elCount.textContent = countSel + ' de ' + countVis + ' visibles selecc.';
     if (elAll) elAll.textContent = 'Total servicios visibles: ' + money(sumVis);
+
+    var elCierreN = $('#cierreN');
+    var elCierreNo = $('#cierreNo');
+    var elCierreNoWrap = $('#cierreNoWrap');
+    var elCierreTotal = $('#cierreTotal');
+    if (elCierreN) elCierreN.textContent = countSel;
+    if (elCierreNo) elCierreNo.textContent = countNo;
+    if (elCierreNoWrap) elCierreNoWrap.style.display = countNo ? '' : 'none';
+    if (elCierreTotal) elCierreTotal.textContent = money(sumSel);
 
     if (elPeriodo) {
       selDates.sort();
@@ -3225,8 +3258,6 @@ document.addEventListener('click', function (e) {
   }
   else if (act === 'pad-clear') {
     if (window._pads) {
-      if (b.dataset.pad === 'padResp') window._pads.resp.clear();
-      else window._pads.tec.clear();
     }
   }
   else if (act === 'cloud-save-cfg') {

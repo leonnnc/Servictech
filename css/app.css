@@ -870,12 +870,20 @@ body.cover main { padding: 0; }
   white-space: nowrap;
 }
 
+/* Las tarjetas que no suman (pendientes, en curso, canceladas) se distinguen
+   con un tono ámbar suave en vez de verse apagadas: quedan fuera del total. */
 .costos-item.no-cobra {
-  opacity: .6;
+  background: #FFFDF7;
+  border-color: #F0DFBC;
 }
 
 .costos-item.no-cobra .costos-check {
   cursor: not-allowed;
+  opacity: .55;
+}
+
+.costos-item.no-cobra .costos-input {
+  background: #FFFBF1;
 }
 
 .costos-date {
@@ -1125,6 +1133,90 @@ body.cover main { padding: 0; }
 .rep-serv-row .v { flex: 1; white-space: pre-wrap; }
 .rep-serv-costo { background: var(--bg-soft); }
 .rep-serv-costo .v { font-weight: 800; text-align: right; }
+/* Servicio que todavía no suma: su etiqueta y su costo van en ámbar. */
+.rep-serv-pend { color: var(--warn-tx); background: var(--warn-bg); }
+.rep-serv-nocobra .v { color: var(--warn-tx); }
+.rep-serv-tag {
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+  color: var(--warn-tx); background: var(--warn-bg);
+  border-radius: 999px; padding: 1px 6px; margin-left: 5px;
+}
+/* Cierre del detalle: el cuadro con el total de los servicios. */
+.rep-serv-total { border-top: 2px solid var(--line); background: var(--bg-soft); padding: 10px 14px; }
+.rep-serv-total-line {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 12px; color: var(--ink2); padding: 2px 0;
+}
+.rep-serv-total-line b { color: var(--ink); }
+.rep-serv-total-val {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin-top: 7px; padding-top: 8px; border-top: 1px solid var(--line);
+}
+.rep-serv-total-val span {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .3px; color: var(--ink2);
+}
+.rep-serv-total-val b { font-size: 16px; font-weight: 800; color: var(--teal-dk); }
+/* Servicio que todavía no suma: su etiqueta y su costo van en ámbar. */
+.rep-serv-pend { color: var(--warn-tx); background: var(--warn-bg); }
+.rep-serv-nocobra .v { color: var(--warn-tx); }
+.rep-serv-tag {
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+  color: var(--warn-tx); background: var(--warn-bg);
+  border-radius: 999px; padding: 1px 6px; margin-left: 5px;
+}
+/* Cierre del detalle: el cuadro con el total de los servicios. */
+.rep-serv-total { border-top: 2px solid var(--line); background: var(--bg-soft); padding: 10px 14px; }
+.rep-serv-total-line {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 12px; color: var(--ink2); padding: 2px 0;
+}
+.rep-serv-total-line b { color: var(--ink); }
+.rep-serv-total-val {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin-top: 7px; padding-top: 8px; border-top: 1px solid var(--line);
+}
+.rep-serv-total-val span {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .3px; color: var(--ink2);
+}
+.rep-serv-total-val b { font-size: 16px; font-weight: 800; color: var(--teal-dk); }
 @media print {
   .rep-serv { page-break-inside: avoid; }
+  .rep-serv-total { page-break-inside: avoid; }
+  .rep-serv-total { page-break-inside: avoid; }
 }
+
+/* ---------- Cierre de la lista de Costos ---------- */
+.costos-cierre {
+  margin: 14px 0 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 14px;
+}
+.costos-cierre-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--ink2);
+  padding: 2px 0;
+}
+.costos-cierre-line b { color: var(--ink); font-size: 13px; }
+.costos-cierre-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .4px;
+  color: var(--ink2);
+}
+.costos-cierre-total b { font-size: 19px; color: var(--teal-dk, #157a63); }
