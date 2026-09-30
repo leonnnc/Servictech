@@ -2142,14 +2142,14 @@ function vInforme(id) {
   /* Firmas y conformidad */
   html += '<div class="rep-firmas">' +
     '<div class="firma">' +
-    '<div class="firma-box">' + (x.firma_responsable ? '<img src="' + x.firma_responsable + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
+    '<div class="firma-box">' + (x.firma_responsable ? '<img src="' + x.firma_responsable + '" alt="Firma">' : '') + '</div>' +
     '<div class="firma-nombre">' + esc(x.nombre_responsable || 'Responsable de recepción') + (x.cargo_responsable ? '<br><small>' + esc(x.cargo_responsable) + '</small>' : '') + '</div>' +
     '<div class="firma-rol">Conformidad del cliente: ' + (esPendiente
       ? '<b style="color:#92400E">PENDIENTE</b>'
       : (isConforme ? '<b>CONFORME</b>' : '<b style="color:#B91C1C">NO CONFORME</b>')) + '</div>' +
     '</div>' +
     '<div class="firma">' +
-    '<div class="firma-box">' + (x.firma_tecnico ? '<img src="' + x.firma_tecnico + '" alt="Firma">' : '<span>Sin firma</span>') + '</div>' +
+    '<div class="firma-box">' + (x.firma_tecnico ? '<img src="' + x.firma_tecnico + '" alt="Firma">' : '') + '</div>' +
     '<div class="firma-nombre">' + esc(x.tecnico || 'Técnico asignado') + '</div>' +
     '<div class="firma-rol">Firma del técnico responsable</div>' +
     '</div>' +
